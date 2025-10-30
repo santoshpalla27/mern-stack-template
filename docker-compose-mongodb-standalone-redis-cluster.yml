@@ -166,6 +166,7 @@ services:
       - |
         echo "All Redis nodes are healthy! Creating cluster in 5 seconds..."
         sleep 5
+        
         redis-cli --cluster create \
           redis-node1:7001 \
           redis-node2:7002 \
@@ -174,15 +175,10 @@ services:
           redis-node5:7005 \
           redis-node6:7006 \
           --cluster-replicas 1 \
-          --cluster-yes
-        
-        if [ \$\$? -eq 0 ]; then
-          echo "✅ Redis cluster created successfully!"
-          redis-cli -c -h redis-node1 -p 7001 CLUSTER INFO
-        else
-          echo "❌ Redis cluster creation failed!"
-          exit 1
-        fi
+          --cluster-yes && \
+        echo "✅ Redis cluster created successfully!" && \
+        redis-cli -c -h redis-node1 -p 7001 CLUSTER INFO
+
 
   # Backend API
   backend:

@@ -20,6 +20,7 @@ class RedisConnection {
     this.currentRetry = 0;
     this.isReconnecting = false;
     this.isSentinel = false;
+    this.isCluster = false;
   }
 
   updateStatus(updates) {
@@ -35,6 +36,15 @@ class RedisConnection {
     if (!this.client || this.client.status !== 'ready') return;
 
     try {
+      // ✅ ADD THIS FOR CLUSTER
+      if (this.isCluster) {
+        this.status.mode = 'cluster';
+        this.status.role = 'cluster-node';
+        logger.info(`📊 Redis architecture: cluster`);
+        return;
+      }
+
+      // Existing code for Sentinel
       if (this.isSentinel) {
         this.status.mode = 'sentinel';
         this.status.role = 'managed-by-sentinel';
@@ -42,6 +52,7 @@ class RedisConnection {
         return;
       }
 
+      // Existing code for standalone/replication
       const info = await this.client.info();
       const infoObj = this.parseRedisInfo(info);
 
@@ -135,9 +146,11 @@ class RedisConnection {
   async connect() {
     const sentinelHosts = process.env.REDIS_SENTINEL_HOSTS;
     const sentinelMaster = process.env.REDIS_SENTINEL_MASTER || 'mymaster';
+    const clusterNodes = process.env.REDIS_CLUSTER_NODES;  // ✅ ADD THIS
     const redisURI = process.env.REDIS_URI;
     
-    if (!sentinelHosts && !redisURI) {
+    // ✅ UPDATE THIS CONDITION
+    if (!sentinelHosts && !redisURI && !clusterNodes) {
       this.updateStatus({
         connected: false,
         message: 'Redis not configured (optional)',
@@ -148,8 +161,41 @@ class RedisConnection {
     }
 
     try {
-      // ✅ SENTINEL CONFIGURATION
-      if (sentinelHosts) {
+      // ✅ ADD REDIS CLUSTER CONFIGURATION (BEFORE SENTINEL)
+      if (clusterNodes) {
+        logger.info('🔍 Using Redis Cluster configuration');
+        
+        const nodes = clusterNodes.split(',').map(node => {
+          const [host, port] = node.trim().split(':');
+          return { host, port: parseInt(port) || 7001 };
+        });
+
+        logger.info(`🔍 Cluster nodes: ${JSON.stringify(nodes)}`);
+
+        this.client = new Redis.Cluster(nodes, {
+          redisOptions: {
+            connectTimeout: 10000,
+            maxRetriesPerRequest: 3,
+          },
+          clusterRetryStrategy: (times) => {
+            if (times > this.maxRetries) {
+              logger.error('❌ Max Redis cluster reconnection attempts reached');
+              return null;
+            }
+            const delay = Math.min(times * this.retryDelay, 30000);
+            logger.info(`🔄 Redis cluster reconnect attempt ${times} in ${delay}ms`);
+            return delay;
+          },
+          enableReadyCheck: true,
+        });
+
+        this.isCluster = true;
+        this.setupEventListeners();
+        logger.info('🔌 Connecting to Redis Cluster...');
+
+      }
+      // SENTINEL CONFIGURATION (existing code)
+      else if (sentinelHosts) {
         logger.info('🔍 Using Redis Sentinel configuration');
         
         const sentinels = sentinelHosts.split(',').map(host => {
@@ -191,7 +237,7 @@ class RedisConnection {
         logger.info('🔌 Connecting to Redis via Sentinel...');
 
       } 
-      // ✅ STANDARD/CLUSTER CONFIGURATION
+      // STANDARD CONFIGURATION (existing code)
       else if (redisURI) {
         logger.info('🔌 Connecting to Redis (standard mode)...');
         
@@ -227,7 +273,8 @@ class RedisConnection {
   getStatus() {
     return {
       ...this.status,
-      clientStatus: this.client ? this.client.status : 'not_initialized'
+      clientStatus: this.client ? this.client.status : 'not_initialized',
+      isCluster: this.isCluster
     };
   }
 
