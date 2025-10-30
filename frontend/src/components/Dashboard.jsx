@@ -31,8 +31,9 @@ const Dashboard = () => {
       setConnectionHistory(prev => {
         const newEntry = {
           timestamp: new Date().toISOString(),
-          mongodb: statusResult.data.services.mongodb.connected,
-          redis: statusResult.data.services.redis.connected
+          backend: true,
+          mongodb: statusResult.data.services?.mongodb?.connected || false,
+          redis: statusResult.data.services?.redis?.connected || false
         };
         return [...prev.slice(-20), newEntry]; // Keep last 20 entries
       });
@@ -44,6 +45,7 @@ const Dashboard = () => {
       setConnectionHistory(prev => {
         const newEntry = {
           timestamp: new Date().toISOString(),
+          backend: false,
           mongodb: false,
           redis: false,
           error: true
@@ -113,14 +115,30 @@ const Dashboard = () => {
           <span className="text-gray-900 font-medium">{service?.message || 'N/A'}</span>
         </div>
         
-        <div className="flex justify-between">
-          <span className="text-gray-600">Attempts:</span>
-          <span className="text-gray-900">{service?.connectionAttempts || 0}</span>
-        </div>
+        {service?.connectionAttempts !== undefined && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Attempts:</span>
+            <span className="text-gray-900">{service.connectionAttempts || 0}</span>
+          </div>
+        )}
+
+        {service?.port && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Port:</span>
+            <span className="text-gray-900">{service.port}</span>
+          </div>
+        )}
 
         {service?.lastError && (
           <div className="text-sm text-red-600">
             Error: {service.lastError}
+          </div>
+        )}
+
+        {service?.readyState !== undefined && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Ready State:</span>
+            <span className="text-gray-900">{service.readyStateLabel || service.readyState || 'N/A'}</span>
           </div>
         )}
 
@@ -203,7 +221,20 @@ const Dashboard = () => {
   );
 
   const ConnectionHistoryChart = () => {
-    if (connectionHistory.length === 0) return null;
+    if (connectionHistory.length === 0) {
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+            <span className="text-2xl mr-2">📊</span>
+            Connection History
+          </h3>
+          <div className="text-center py-8">
+            <p className="text-gray-600">No connection history data yet.</p>
+            <p className="text-sm text-gray-500">Data will appear after the first status check.</p>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="bg-white rounded-lg shadow-md p-6">
@@ -212,36 +243,85 @@ const Dashboard = () => {
           Connection History (Last {connectionHistory.length} checks)
         </h3>
         
-        <div className="flex items-end justify-between h-32 mb-4 border-b border-l border-gray-200 pb-2 pl-2">
-          {connectionHistory.map((entry, idx) => {
-            const mongoHeight = entry.mongodb ? 100 : 20;
-            const redisHeight = entry.redis ? 100 : 20;
-            
-            return (
-              <div key={idx} className="flex flex-col items-center mx-1">
-                <div 
-                  className="w-3 bg-green-500 rounded-t hover:opacity-75 transition-opacity"
-                  style={{ height: `${mongoHeight}%` }}
-                  title={`MongoDB: ${entry.mongodb ? 'Connected' : 'Disconnected'}`}
-                />
-                <div 
-                  className="w-3 bg-blue-500 rounded-t mt-1 hover:opacity-75 transition-opacity"
-                  style={{ height: `${redisHeight}%` }}
-                  title={`Redis: ${entry.redis ? 'Connected' : 'Disconnected'}`}
-                />
-              </div>
-            );
-          })}
+        <div className="flex items-end justify-between h-32 mb-4 border-b border-l border-gray-200 pb-2 pl-2 relative">
+          <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 -ml-6">
+            <span>100%</span>
+            <span>50%</span>
+            <span>0%</span>
+          </div>
+          <div className="flex items-end space-x-1 h-32 flex-grow">
+            {connectionHistory.map((entry, idx) => {
+              const backendHeight = entry.backend ? 'h-full' : 'h-2';
+              const mongoHeight = entry.mongodb ? 'h-full' : 'h-2';
+              const redisHeight = entry.redis ? 'h-full' : 'h-2';
+              
+              return (
+                <div key={idx} className="flex items-end space-x-0.5 w-4">
+                  <div
+                    className={`w-2 ${entry.backend ? 'bg-blue-500' : 'bg-gray-300'} rounded-t hover:opacity-75 transition-opacity ${
+                      backendHeight.includes('full') ? 'h-full' : 'h-2'
+                    }`}
+                    style={{ height: entry.backend ? '100%' : '10%' }}
+                    title={`Backend: ${entry.backend ? 'Connected' : 'Disconnected'} at ${new Date(entry.timestamp).toLocaleTimeString()}`}
+                  />
+                  <div
+                    className={`w-2 ${entry.mongodb ? 'bg-green-500' : 'bg-gray-300'} rounded-t hover:opacity-75 transition-opacity ${
+                      mongoHeight.includes('full') ? 'h-full' : 'h-2'
+                    }`}
+                    style={{ height: entry.mongodb ? '100%' : '10%' }}
+                    title={`MongoDB: ${entry.mongodb ? 'Connected' : 'Disconnected'} at ${new Date(entry.timestamp).toLocaleTimeString()}`}
+                  />
+                  <div
+                    className={`w-2 ${entry.redis ? 'bg-red-500' : 'bg-gray-300'} rounded-t hover:opacity-75 transition-opacity ${
+                      redisHeight.includes('full') ? 'h-full' : 'h-2'
+                    }`}
+                    style={{ height: entry.redis ? '100%' : '10%' }}
+                    title={`Redis: ${entry.redis ? 'Connected' : 'Disconnected'} at ${new Date(entry.timestamp).toLocaleTimeString()}`}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
         
-        <div className="flex justify-between text-xs text-gray-600">
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-green-500 mr-1"></div>
-            <span>MongoDB</span>
-            <div className="w-3 h-3 bg-blue-500 ml-3 mr-1"></div>
-            <span>Redis</span>
+        <div className="flex justify-between text-xs text-gray-600 mb-4">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-blue-500 mr-1"></div>
+              <span>Backend</span>
+            </div>
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-green-500 mr-1"></div>
+              <span>MongoDB</span>
+            </div>
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-red-500 mr-1"></div>
+              <span>Redis</span>
+            </div>
           </div>
           <span>{connectionHistory.length} samples</span>
+        </div>
+
+        {/* Statistics */}
+        <div className="grid grid-cols-3 gap-4 mt-4">
+          <div className="bg-blue-50 rounded-lg p-3 text-center">
+            <p className="text-sm text-gray-600">Backend Uptime</p>
+            <p className="text-lg font-bold text-blue-600">
+              {((connectionHistory.filter(e => e.backend).length / connectionHistory.length) * 100).toFixed(1)}%
+            </p>
+          </div>
+          <div className="bg-green-50 rounded-lg p-3 text-center">
+            <p className="text-sm text-gray-600">MongoDB Uptime</p>
+            <p className="text-lg font-bold text-green-600">
+              {((connectionHistory.filter(e => e.mongodb).length / connectionHistory.length) * 100).toFixed(1)}%
+            </p>
+          </div>
+          <div className="bg-red-50 rounded-lg p-3 text-center">
+            <p className="text-sm text-gray-600">Redis Uptime</p>
+            <p className="text-lg font-bold text-red-600">
+              {((connectionHistory.filter(e => e.redis).length / connectionHistory.length) * 100).toFixed(1)}%
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -439,7 +519,12 @@ const Dashboard = () => {
                 <span className="text-2xl mr-2">🔌</span>
                 Services Status
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <ServiceCard
+                  title="Backend"
+                  service={status?.services?.backend}
+                  icon="⚙️"
+                />
                 <ServiceCard
                   title="MongoDB"
                   service={status?.services?.mongodb}
@@ -536,33 +621,69 @@ const Dashboard = () => {
                 Connection Details
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Backend Details */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <span className="mr-2">⚙️</span>
+                    Backend Connection
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Status:</span>
+                      <span className="text-gray-900">{status?.services?.backend?.message || 'Running'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Port:</span>
+                      <span className="text-gray-900">{status?.services?.backend?.port || 5000}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Uptime:</span>
+                      <span className="text-gray-900">{status?.services?.backend?.uptime || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* MongoDB Details */}
                 <div className="border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-800 mb-3">MongoDB Connection</h4>
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <span className="mr-2">🍃</span>
+                    MongoDB Connection
+                  </h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Ready State:</span>
-                      <span className="text-gray-900">{status?.services?.mongodb?.readyStateLabel}</span>
+                      <span className="text-gray-900">{status?.services?.mongodb?.readyStateLabel || 'Unknown'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Attempts:</span>
-                      <span className="text-gray-900">{status?.services?.mongodb?.connectionAttempts}</span>
+                      <span className="text-gray-900">{status?.services?.mongodb?.connectionAttempts || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Topology:</span>
+                      <span className="text-gray-900">{status?.services?.mongodb?.architecture?.topology || 'N/A'}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Redis Details */}
                 <div className="border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-800 mb-3">Redis Connection</h4>
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <span className="mr-2">📦</span>
+                    Redis Connection
+                  </h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Status:</span>
-                      <span className="text-gray-900">{status?.services?.redis?.message}</span>
+                      <span className="text-gray-900">{status?.services?.redis?.message || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Attempts:</span>
-                      <span className="text-gray-900">{status?.services?.redis?.connectionAttempts}</span>
+                      <span className="text-gray-900">{status?.services?.redis?.connectionAttempts || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Mode:</span>
+                      <span className="text-gray-900">{status?.services?.redis?.architecture?.mode || 'N/A'}</span>
                     </div>
                   </div>
                 </div>

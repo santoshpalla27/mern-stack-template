@@ -91,13 +91,22 @@ router.get('/status', async (req, res) => {
       },
       uptime: uptime,
       services: {
+        backend: {
+          connected: true,
+          message: 'Running',
+          status: 'healthy',
+          lastChecked: new Date().toISOString(),
+          port: process.env.PORT || 5000,
+          uptime: uptime.formatted
+        },
         mongodb: {
           connected: mongoStatus.connected,
           message: mongoStatus.message,
           lastChecked: mongoStatus.lastChecked,
           connectionAttempts: mongoStatus.connectionAttempts,
           lastError: mongoStatus.lastError,
-          readyState: mongoStatus.readyStateLabel,
+          readyState: mongoStatus.readyState,
+          readyStateLabel: mongoStatus.readyStateLabel,
           architecture: {
             topology: mongoStatus.topology,
             replicaSet: mongoStatus.replicaSet,
