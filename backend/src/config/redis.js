@@ -33,10 +33,16 @@ class RedisConnection {
   }
 
   async getRedisInfo() {
-    if (!this.client || this.client.status !== 'ready') return;
+    if (!this.client) return;
+
+    // For cluster, check status differently
+    if (this.isCluster) {
+      if (this.client.status !== 'ready') return;
+    } else {
+      if (this.client.status !== 'ready') return;
+    }
 
     try {
-      // ✅ ADD THIS FOR CLUSTER
       if (this.isCluster) {
         this.status.mode = 'cluster';
         this.status.role = 'cluster-node';
@@ -44,7 +50,6 @@ class RedisConnection {
         return;
       }
 
-      // Existing code for Sentinel
       if (this.isSentinel) {
         this.status.mode = 'sentinel';
         this.status.role = 'managed-by-sentinel';
@@ -52,7 +57,6 @@ class RedisConnection {
         return;
       }
 
-      // Existing code for standalone/replication
       const info = await this.client.info();
       const infoObj = this.parseRedisInfo(info);
 
@@ -72,7 +76,7 @@ class RedisConnection {
       this.status.role = role;
       this.status.clusterNodes = clusterNodes;
 
-      logger.info(`📊 Redis architecture: ${mode} (role: ${role})`);
+      logger.info(`📊 Redis architecture: \${mode} (role: \${role})`);
 
     } catch (error) {
       logger.error('Error getting Redis info:', error.message);
@@ -95,61 +99,116 @@ class RedisConnection {
     return result;
   }
 
+  // ✅ FIXED: Separate event handlers for Cluster vs Standard
   setupEventListeners() {
     if (!this.client) return;
 
-    this.client.on('connect', () => {
-      logger.info('⚡ Redis connecting...');
-    });
-
-    this.client.on('ready', async () => {
-      this.currentRetry = 0;
-      this.isReconnecting = false;
-      this.updateStatus({
-        connected: true,
-        message: 'Connected successfully',
-        lastError: null
+    if (this.isCluster) {
+      // ✅ Cluster-specific event handlers
+      this.client.on('connect', () => {
+        logger.info('⚡ Redis Cluster connecting...');
       });
-      
-      await this.getRedisInfo();
-      logger.info('✅ Redis ready');
-    });
 
-    this.client.on('error', (err) => {
-      this.updateStatus({
-        connected: false,
-        message: 'Connection error',
-        lastError: err.message
+      this.client.on('ready', async () => {
+        this.currentRetry = 0;
+        this.isReconnecting = false;
+        this.updateStatus({
+          connected: true,
+          message: 'Connected successfully',
+          lastError: null
+        });
+        
+        await this.getRedisInfo();
+        logger.info('✅ Redis Cluster ready');
       });
-      logger.error('❌ Redis error:', err.message);
-    });
 
-    this.client.on('close', () => {
-      this.updateStatus({
-        connected: false,
-        message: 'Connection closed',
-        mode: null,
-        role: null,
-        clusterNodes: []
+      this.client.on('error', (err) => {
+        this.updateStatus({
+          connected: false,
+          message: 'Connection error',
+          lastError: err.message
+        });
+        logger.error('❌ Redis Cluster error:', err.message);
       });
-      logger.warn('⚠️  Redis connection closed');
-    });
 
-    this.client.on('reconnecting', () => {
-      logger.info('🔄 Redis reconnecting...');
-      this.updateStatus({
-        message: 'Reconnecting...'
+      this.client.on('close', () => {
+        this.updateStatus({
+          connected: false,
+          message: 'Connection closed',
+          mode: null,
+          role: null,
+          clusterNodes: []
+        });
+        logger.warn('⚠️  Redis Cluster connection closed');
       });
-    });
+
+      // ✅ Cluster-specific events
+      this.client.on('node error', (err, node) => {
+        logger.error(`❌ Redis node \${node} error:`, err.message);
+      });
+
+      this.client.on('+node', (node) => {
+        logger.info(`➕ Redis node added: \${node.options.host}:\${node.options.port}`);
+      });
+
+      this.client.on('-node', (node) => {
+        logger.warn(`➖ Redis node removed: \${node.options.host}:\${node.options.port}`);
+      });
+
+    } else {
+      // ✅ Standard/Sentinel event handlers
+      this.client.on('connect', () => {
+        logger.info('⚡ Redis connecting...');
+      });
+
+      this.client.on('ready', async () => {
+        this.currentRetry = 0;
+        this.isReconnecting = false;
+        this.updateStatus({
+          connected: true,
+          message: 'Connected successfully',
+          lastError: null
+        });
+        
+        await this.getRedisInfo();
+        logger.info('✅ Redis ready');
+      });
+
+      this.client.on('error', (err) => {
+        this.updateStatus({
+          connected: false,
+          message: 'Connection error',
+          lastError: err.message
+        });
+        logger.error('❌ Redis error:', err.message);
+      });
+
+      this.client.on('close', () => {
+        this.updateStatus({
+          connected: false,
+          message: 'Connection closed',
+          mode: null,
+          role: null,
+          clusterNodes: []
+        });
+        logger.warn('⚠️  Redis connection closed');
+      });
+
+      this.client.on('reconnecting', () => {
+        logger.info('🔄 Redis reconnecting...');
+        this.updateStatus({
+          message: 'Reconnecting...'
+        });
+      });
+    }
   }
 
   async connect() {
     const sentinelHosts = process.env.REDIS_SENTINEL_HOSTS;
     const sentinelMaster = process.env.REDIS_SENTINEL_MASTER || 'mymaster';
-    const clusterNodes = process.env.REDIS_CLUSTER_NODES;  // ✅ ADD THIS
+    const clusterNodes = process.env.REDIS_CLUSTER_NODES;
     const redisURI = process.env.REDIS_URI;
     
-    // ✅ UPDATE THIS CONDITION
     if (!sentinelHosts && !redisURI && !clusterNodes) {
       this.updateStatus({
         connected: false,
@@ -161,7 +220,7 @@ class RedisConnection {
     }
 
     try {
-      // ✅ ADD REDIS CLUSTER CONFIGURATION (BEFORE SENTINEL)
+      // ===== REDIS CLUSTER CONFIGURATION =====
       if (clusterNodes) {
         logger.info('🔍 Using Redis Cluster configuration');
         
@@ -170,7 +229,7 @@ class RedisConnection {
           return { host, port: parseInt(port) || 7001 };
         });
 
-        logger.info(`🔍 Cluster nodes: ${JSON.stringify(nodes)}`);
+        logger.info(`🔍 Cluster nodes: \${JSON.stringify(nodes)}`);
 
         this.client = new Redis.Cluster(nodes, {
           redisOptions: {
@@ -183,18 +242,22 @@ class RedisConnection {
               return null;
             }
             const delay = Math.min(times * this.retryDelay, 30000);
-            logger.info(`🔄 Redis cluster reconnect attempt ${times} in ${delay}ms`);
+            logger.info(`🔄 Redis cluster reconnect attempt \${times} in \${delay}ms`);
             return delay;
           },
           enableReadyCheck: true,
+          // ✅ ADD: These improve cluster stability
+          scaleReads: 'slave',  // Read from replicas when possible
+          maxRedirections: 16,   // Max cluster redirections
+          retryDelayOnFailover: 100,  // Delay during failover
         });
 
         this.isCluster = true;
-        this.setupEventListeners();
+        this.setupEventListeners();  // ✅ Now handles cluster events properly
         logger.info('🔌 Connecting to Redis Cluster...');
 
       }
-      // SENTINEL CONFIGURATION (existing code)
+      // ===== SENTINEL CONFIGURATION =====
       else if (sentinelHosts) {
         logger.info('🔍 Using Redis Sentinel configuration');
         
@@ -203,8 +266,8 @@ class RedisConnection {
           return { host: hostname, port: parseInt(port) || 26379 };
         });
 
-        logger.info(`🔍 Sentinel hosts: ${JSON.stringify(sentinels)}`);
-        logger.info(`🔍 Sentinel master name: ${sentinelMaster}`);
+        logger.info(`🔍 Sentinel hosts: \${JSON.stringify(sentinels)}`);
+        logger.info(`🔍 Sentinel master name: \${sentinelMaster}`);
 
         this.client = new Redis({
           sentinels: sentinels,
@@ -215,7 +278,7 @@ class RedisConnection {
               return null;
             }
             const delay = Math.min(times * 1000, 5000);
-            logger.info(`🔄 Sentinel retry attempt ${times} in ${delay}ms`);
+            logger.info(`🔄 Sentinel retry attempt \${times} in \${delay}ms`);
             return delay;
           },
           retryStrategy: (times) => {
@@ -224,7 +287,7 @@ class RedisConnection {
               return null;
             }
             const delay = Math.min(times * this.retryDelay, 30000);
-            logger.info(`🔄 Redis reconnect attempt ${times} in ${delay}ms`);
+            logger.info(`🔄 Redis reconnect attempt \${times} in \${delay}ms`);
             return delay;
           },
           enableReadyCheck: true,
@@ -237,7 +300,7 @@ class RedisConnection {
         logger.info('🔌 Connecting to Redis via Sentinel...');
 
       } 
-      // STANDARD CONFIGURATION (existing code)
+      // ===== STANDARD CONFIGURATION =====
       else if (redisURI) {
         logger.info('🔌 Connecting to Redis (standard mode)...');
         
@@ -248,7 +311,7 @@ class RedisConnection {
               return null;
             }
             const delay = Math.min(times * this.retryDelay, 30000);
-            logger.info(`🔄 Redis reconnect attempt ${times} in ${delay}ms`);
+            logger.info(`🔄 Redis reconnect attempt \${times} in \${delay}ms`);
             return delay;
           },
           enableReadyCheck: true,
@@ -274,15 +337,22 @@ class RedisConnection {
     return {
       ...this.status,
       clientStatus: this.client ? this.client.status : 'not_initialized',
-      isCluster: this.isCluster
+      isCluster: this.isCluster,
+      isSentinel: this.isSentinel
     };
   }
 
   async disconnect() {
     if (this.client) {
       try {
-        await this.client.quit();
-        logger.info('Redis disconnected gracefully');
+        // ✅ Different disconnect methods for cluster vs standard
+        if (this.isCluster) {
+          await this.client.quit();
+          logger.info('Redis Cluster disconnected gracefully');
+        } else {
+          await this.client.quit();
+          logger.info('Redis disconnected gracefully');
+        }
       } catch (error) {
         logger.error('Error disconnecting Redis:', error.message);
         try {
@@ -295,8 +365,15 @@ class RedisConnection {
   }
 
   async ping() {
-    if (!this.client || this.client.status !== 'ready') {
+    if (!this.client) {
       return false;
+    }
+
+    // ✅ Check status properly for cluster
+    if (this.isCluster) {
+      if (this.client.status !== 'ready') return false;
+    } else {
+      if (this.client.status !== 'ready') return false;
     }
     
     try {
