@@ -1,0 +1,280 @@
+version: '3.8'
+
+services:
+  # MongoDB Replica Set - Primary
+  mongodb-primary:
+    image: mongo:7.0
+    container_name: mongodb-rs-primary
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_primary_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set - Secondary 1
+  mongodb-secondary1:
+    image: mongo:7.0
+    container_name: mongodb-rs-secondary1
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_secondary1_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set - Secondary 2
+  mongodb-secondary2:
+    image: mongo:7.0
+    container_name: mongodb-rs-secondary2
+    restart: unless-stopped
+    ports:
+      - "27019:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_secondary2_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set Initializer
+  mongodb-init:
+    image: mongo:7.0
+    container_name: mongodb-rs-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary1
+      - mongodb-secondary2
+    command: >
+      mongosh --host mongodb-primary:27017 --eval '
+      rs.initiate({
+        _id: "rs0",
+        members: [
+          { _id: 0, host: "mongodb-primary:27017", priority: 2 },
+          { _id: 1, host: "mongodb-secondary1:27017", priority: 1 },
+          { _id: 2, host: "mongodb-secondary2:27017", priority: 1 }
+        ]
+      });
+      '
+
+  # Redis Master
+  redis-master:
+    image: redis:7-alpine
+    container_name: redis-master
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_master_data:/data
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Replica 1
+  redis-replica1:
+    image: redis:7-alpine
+    container_name: redis-replica1
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --replicaof redis-master 6379
+    volumes:
+      - redis_replica1_data:/data
+    networks:
+      - devops-network
+    depends_on:
+      - redis-master
+
+  # Redis Replica 2
+  redis-replica2:
+    image: redis:7-alpine
+    container_name: redis-replica2
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    command: redis-server --appendonly yes --replicaof redis-master 6379
+    volumes:
+      - redis_replica2_data:/data
+    networks:
+      - devops-network
+    depends_on:
+      - redis-master
+
+  # Redis Sentinel 1
+  redis-sentinel1:
+    image: redis:7-alpine
+    container_name: redis-sentinel1
+    restart: unless-stopped
+    ports:
+      - "26379:26379"
+    command: >
+      sh -c "
+      echo 'port 26379' > /tmp/sentinel.conf &&
+      echo 'dir /tmp' >> /tmp/sentinel.conf &&
+      echo 'sentinel monitor mymaster redis-master 6379 2' >> /tmp/sentinel.conf &&
+      echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+      echo 'sentinel parallel-syncs mymaster 1' >> /tmp/sentinel.conf &&
+      echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+      redis-sentinel /tmp/sentinel.conf
+      "
+    networks:
+      - devops-network
+    depends_on:
+      - redis-master
+      - redis-replica1
+      - redis-replica2
+
+  # Redis Sentinel 2
+  redis-sentinel2:
+    image: redis:7-alpine
+    container_name: redis-sentinel2
+    restart: unless-stopped
+    ports:
+      - "26380:26379"
+    command: >
+      sh -c "
+      echo 'port 26379' > /tmp/sentinel.conf &&
+      echo 'dir /tmp' >> /tmp/sentinel.conf &&
+      echo 'sentinel monitor mymaster redis-master 6379 2' >> /tmp/sentinel.conf &&
+      echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+      echo 'sentinel parallel-syncs mymaster 1' >> /tmp/sentinel.conf &&
+      echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+      redis-sentinel /tmp/sentinel.conf
+      "
+    networks:
+      - devops-network
+    depends_on:
+      - redis-master
+      - redis-replica1
+      - redis-replica2
+
+  # Redis Sentinel 3
+  redis-sentinel3:
+    image: redis:7-alpine
+    container_name: redis-sentinel3
+    restart: unless-stopped
+    ports:
+      - "26381:26379"
+    command: >
+      sh -c "
+      echo 'port 26379' > /tmp/sentinel.conf &&
+      echo 'dir /tmp' >> /tmp/sentinel.conf &&
+      echo 'sentinel monitor mymaster redis-master 6379 2' >> /tmp/sentinel.conf &&
+      echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+      echo 'sentinel parallel-syncs mymaster 1' >> /tmp/sentinel.conf &&
+      echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+      redis-sentinel /tmp/sentinel.conf
+      "
+    networks:
+      - devops-network
+    depends_on:
+      - redis-master
+      - redis-replica1
+      - redis-replica2
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/devops-demo?replicaSet=rs0
+      REDIS_URI: redis://redis-sentinel1:26379
+      CORS_ORIGIN: http://localhost:3000
+      LOG_LEVEL: info
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB ReplicaSet + Redis Sentinel
+      ORCHESTRATION: Docker Compose
+    depends_on:
+      mongodb-init:
+        condition: service_completed_successfully
+      redis-sentinel1:
+        condition: service_started
+      redis-sentinel2:
+        condition: service_started
+      redis-sentinel3:
+        condition: service_started
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongodb_primary_data:
+    driver: local
+  mongodb_secondary1_data:
+    driver: local
+  mongodb_secondary2_data:
+    driver: local
+  redis_master_data:
+    driver: local
+  redis_replica1_data:
+    driver: local
+  redis_replica2_data:
+    driver: local

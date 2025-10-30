@@ -1,0 +1,394 @@
+version: '3.8'
+
+services:
+  # MongoDB Config Server 1
+  mongo-config1:
+    image: mongo:7.0
+    container_name: mongo-config1
+    restart: unless-stopped
+    command: mongod --configsvr --replSet configReplSet --bind_ip_all --port 27019
+    ports:
+      - "27019:27019"
+    volumes:
+      - mongo_config1_data:/data/db
+    networks:
+      - devops-network
+
+  # MongoDB Config Server 2
+  mongo-config2:
+    image: mongo:7.0
+    container_name: mongo-config2
+    restart: unless-stopped
+    command: mongod --configsvr --replSet configReplSet --bind_ip_all --port 27019
+    ports:
+      - "27020:27019"
+    volumes:
+      - mongo_config2_data:/data/db
+    networks:
+      - devops-network
+
+  # MongoDB Config Server 3
+  mongo-config3:
+    image: mongo:7.0
+    container_name: mongo-config3
+    restart: unless-stopped
+    command: mongod --configsvr --replSet configReplSet --bind_ip_all --port 27019
+    ports:
+      - "27021:27019"
+    volumes:
+      - mongo_config3_data:/data/db
+    networks:
+      - devops-network
+
+  # Initialize Config Server Replica Set
+  mongo-config-init:
+    image: mongo:7.0
+    container_name: mongo-config-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongo-config1
+      - mongo-config2
+      - mongo-config3
+    command: >
+      mongosh --host mongo-config1:27019 --eval '
+      rs.initiate({
+        _id: "configReplSet",
+        configsvr: true,
+        members: [
+          { _id: 0, host: "mongo-config1:27019" },
+          { _id: 1, host: "mongo-config2:27019" },
+          { _id: 2, host: "mongo-config3:27019" }
+        ]
+      });
+      '
+
+  # Shard 1 - Primary
+  mongo-shard1-primary:
+    image: mongo:7.0
+    container_name: mongo-shard1-primary
+    restart: unless-stopped
+    command: mongod --shardsvr --replSet shard1ReplSet --bind_ip_all --port 27018
+    ports:
+      - "27022:27018"
+    volumes:
+      - mongo_shard1_primary_data:/data/db
+    networks:
+      - devops-network
+
+  # Shard 1 - Secondary
+  mongo-shard1-secondary:
+    image: mongo:7.0
+    container_name: mongo-shard1-secondary
+    restart: unless-stopped
+    command: mongod --shardsvr --replSet shard1ReplSet --bind_ip_all --port 27018
+    ports:
+      - "27023:27018"
+    volumes:
+      - mongo_shard1_secondary_data:/data/db
+    networks:
+      - devops-network
+
+  # Initialize Shard 1 Replica Set
+  mongo-shard1-init:
+    image: mongo:7.0
+    container_name: mongo-shard1-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongo-shard1-primary
+      - mongo-shard1-secondary
+    command: >
+      mongosh --host mongo-shard1-primary:27018 --eval '
+      rs.initiate({
+        _id: "shard1ReplSet",
+        members: [
+          { _id: 0, host: "mongo-shard1-primary:27018" },
+          { _id: 1, host: "mongo-shard1-secondary:27018" }
+        ]
+      });
+      '
+
+  # Shard 2 - Primary
+  mongo-shard2-primary:
+    image: mongo:7.0
+    container_name: mongo-shard2-primary
+    restart: unless-stopped
+    command: mongod --shardsvr --replSet shard2ReplSet --bind_ip_all --port 27018
+    ports:
+      - "27024:27018"
+    volumes:
+      - mongo_shard2_primary_data:/data/db
+    networks:
+      - devops-network
+
+  # Shard 2 - Secondary
+  mongo-shard2-secondary:
+    image: mongo:7.0
+    container_name: mongo-shard2-secondary
+    restart: unless-stopped
+    command: mongod --shardsvr --replSet shard2ReplSet --bind_ip_all --port 27018
+    ports:
+      - "27025:27018"
+    volumes:
+      - mongo_shard2_secondary_data:/data/db
+    networks:
+      - devops-network
+
+  # Initialize Shard 2 Replica Set
+  mongo-shard2-init:
+    image: mongo:7.0
+    container_name: mongo-shard2-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongo-shard2-primary
+      - mongo-shard2-secondary
+    command: >
+      mongosh --host mongo-shard2-primary:27018 --eval '
+      rs.initiate({
+        _id: "shard2ReplSet",
+        members: [
+          { _id: 0, host: "mongo-shard2-primary:27018" },
+          { _id: 1, host: "mongo-shard2-secondary:27018" }
+        ]
+      });
+      '
+
+  # Mongos Router
+  mongos:
+    image: mongo:7.0
+    container_name: mongos-router
+    restart: unless-stopped
+    command: mongos --configdb configReplSet/mongo-config1:27019,mongo-config2:27019,mongo-config3:27019 --bind_ip_all --port 27017
+    ports:
+      - "27017:27017"
+    networks:
+      - devops-network
+    depends_on:
+      mongo-config-init:
+        condition: service_completed_successfully
+
+  # Add Shards to Cluster
+  mongo-cluster-init:
+    image: mongo:7.0
+    container_name: mongo-cluster-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      mongo-shard1-init:
+        condition: service_completed_successfully
+      mongo-shard2-init:
+        condition: service_completed_successfully
+      mongos:
+        condition: service_started
+    command: >
+      sh -c "
+      sleep 20 &&
+      mongosh --host mongos:27017 --eval '
+      sh.addShard(\"shard1ReplSet/mongo-shard1-primary:27018,mongo-shard1-secondary:27018\");
+      sh.addShard(\"shard2ReplSet/mongo-shard2-primary:27018,mongo-shard2-secondary:27018\");
+      sh.enableSharding(\"devops-demo\");
+      '
+      "
+
+  # Redis Cluster Node 1
+  redis-node1:
+    image: redis:7-alpine
+    container_name: redis-node1
+    restart: unless-stopped
+    ports:
+      - "7001:7001"
+      - "17001:17001"
+    command: redis-server --port 7001 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node1_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 2
+  redis-node2:
+    image: redis:7-alpine
+    container_name: redis-node2
+    restart: unless-stopped
+    ports:
+      - "7002:7002"
+      - "17002:17002"
+    command: redis-server --port 7002 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node2_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 3
+  redis-node3:
+    image: redis:7-alpine
+    container_name: redis-node3
+    restart: unless-stopped
+    ports:
+      - "7003:7003"
+      - "17003:17003"
+    command: redis-server --port 7003 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node3_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 4
+  redis-node4:
+    image: redis:7-alpine
+    container_name: redis-node4
+    restart: unless-stopped
+    ports:
+      - "7004:7004"
+      - "17004:17004"
+    command: redis-server --port 7004 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node4_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 5
+  redis-node5:
+    image: redis:7-alpine
+    container_name: redis-node5
+    restart: unless-stopped
+    ports:
+      - "7005:7005"
+      - "17005:17005"
+    command: redis-server --port 7005 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node5_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 6
+  redis-node6:
+    image: redis:7-alpine
+    container_name: redis-node6
+    restart: unless-stopped
+    ports:
+      - "7006:7006"
+      - "17006:17006"
+    command: redis-server --port 7006 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node6_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Creator
+  redis-cluster-creator:
+    image: redis:7-alpine
+    container_name: redis-cluster-creator
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - redis-node1
+      - redis-node2
+      - redis-node3
+      - redis-node4
+      - redis-node5
+      - redis-node6
+    command: >
+      sh -c "
+      sleep 10 &&
+      redis-cli --cluster create 
+      redis-node1:7001 
+      redis-node2:7002 
+      redis-node3:7003 
+      redis-node4:7004 
+      redis-node5:7005 
+      redis-node6:7006 
+      --cluster-replicas 1 
+      --cluster-yes
+      "
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongos:27017/devops-demo
+      REDIS_URI: redis://redis-node1:7001
+      CORS_ORIGIN: http://localhost:3000
+      LOG_LEVEL: info
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB Sharded Cluster + Redis Cluster
+      ORCHESTRATION: Docker Compose
+    depends_on:
+      mongo-cluster-init:
+        condition: service_completed_successfully
+      redis-cluster-creator:
+        condition: service_completed_successfully
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongo_config1_data:
+    driver: local
+  mongo_config2_data:
+    driver: local
+  mongo_config3_data:
+    driver: local
+  mongo_shard1_primary_data:
+    driver: local
+  mongo_shard1_secondary_data:
+    driver: local
+  mongo_shard2_primary_data:
+    driver: local
+  mongo_shard2_secondary_data:
+    driver: local
+  redis_node1_data:
+    driver: local
+  redis_node2_data:
+    driver: local
+  redis_node3_data:
+    driver: local
+  redis_node4_data:
+    driver: local
+  redis_node5_data:
+    driver: local
+  redis_node6_data:
+    driver: local

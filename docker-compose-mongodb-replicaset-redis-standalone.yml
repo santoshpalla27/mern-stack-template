@@ -1,8 +1,10 @@
+version: '3.8'
+
 services:
   # MongoDB Replica Set - Primary
   mongodb-primary:
     image: mongo:7.0
-    container_name: devops-mongodb-primary
+    container_name: mongodb-rs-primary
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -22,7 +24,7 @@ services:
   # MongoDB Replica Set - Secondary 1
   mongodb-secondary1:
     image: mongo:7.0
-    container_name: devops-mongodb-secondary1
+    container_name: mongodb-rs-secondary1
     restart: unless-stopped
     ports:
       - "27018:27017"
@@ -42,7 +44,7 @@ services:
   # MongoDB Replica Set - Secondary 2
   mongodb-secondary2:
     image: mongo:7.0
-    container_name: devops-mongodb-secondary2
+    container_name: mongodb-rs-secondary2
     restart: unless-stopped
     ports:
       - "27019:27017"
@@ -62,7 +64,7 @@ services:
   # MongoDB Replica Set Initializer
   mongodb-init:
     image: mongo:7.0
-    container_name: devops-mongodb-init
+    container_name: mongodb-rs-init
     restart: "no"
     networks:
       - devops-network
@@ -82,16 +84,16 @@ services:
       });
       '
 
-  # Redis Sentinel Setup
-  redis-master:
+  # Redis - Standalone
+  redis:
     image: redis:7-alpine
-    container_name: devops-redis-master
+    container_name: redis-standalone
     restart: unless-stopped
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes
     volumes:
-      - redis_master_data:/data
+      - redis_data:/data
     networks:
       - devops-network
     healthcheck:
@@ -99,34 +101,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  redis-slave1:
-    image: redis:7-alpine
-    container_name: devops-redis-slave1
-    restart: unless-stopped
-    ports:
-      - "6380:6379"
-    command: redis-server --appendonly yes --slaveof redis-master 6379
-    volumes:
-      - redis_slave1_data:/data
-    networks:
-      - devops-network
-    depends_on:
-      - redis-master
-
-  redis-slave2:
-    image: redis:7-alpine
-    container_name: devops-redis-slave2
-    restart: unless-stopped
-    ports:
-      - "6381:6379"
-    command: redis-server --appendonly yes --slaveof redis-master 6379
-    volumes:
-      - redis_slave2_data:/data
-    networks:
-      - devops-network
-    depends_on:
-      - redis-master
 
   # Backend API
   backend:
@@ -141,15 +115,15 @@ services:
       NODE_ENV: production
       PORT: 5000
       MONGO_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/devops-demo?replicaSet=rs0
-      REDIS_URI: redis://redis-master:6379
-      CORS_ORIGIN: http://98.82.189.42:3000
+      REDIS_URI: redis://redis:6379
+      CORS_ORIGIN: http://localhost:3000
       LOG_LEVEL: info
-      DEPLOYMENT_PLATFORM: Docker Compose - Replica Set
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB ReplicaSet + Redis Standalone
       ORCHESTRATION: Docker Compose
     depends_on:
       mongodb-init:
         condition: service_completed_successfully
-      redis-master:
+      redis:
         condition: service_healthy
     networks:
       - devops-network
@@ -166,7 +140,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://98.82.189.42:5000/api
+        VITE_API_URL: http://localhost:5000/api
     container_name: devops-frontend
     restart: unless-stopped
     ports:
@@ -192,9 +166,5 @@ volumes:
     driver: local
   mongodb_secondary2_data:
     driver: local
-  redis_master_data:
-    driver: local
-  redis_slave1_data:
-    driver: local
-  redis_slave2_data:
+  redis_data:
     driver: local

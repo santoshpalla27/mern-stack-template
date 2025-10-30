@@ -1,8 +1,10 @@
+version: '3.8'
+
 services:
-  # MongoDB (Standalone for simplicity, can be replica set)
+  # MongoDB - Standalone
   mongodb:
     image: mongo:7.0
-    container_name: devops-mongodb
+    container_name: mongodb-standalone
     restart: unless-stopped
     ports:
       - "27017:27017"
@@ -18,10 +20,10 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis Cluster Nodes
+  # Redis Cluster Node 1
   redis-node1:
     image: redis:7-alpine
-    container_name: devops-redis-node1
+    container_name: redis-node1
     restart: unless-stopped
     ports:
       - "7001:7001"
@@ -32,9 +34,10 @@ services:
     networks:
       - devops-network
 
+  # Redis Cluster Node 2
   redis-node2:
     image: redis:7-alpine
-    container_name: devops-redis-node2
+    container_name: redis-node2
     restart: unless-stopped
     ports:
       - "7002:7002"
@@ -45,9 +48,10 @@ services:
     networks:
       - devops-network
 
+  # Redis Cluster Node 3
   redis-node3:
     image: redis:7-alpine
-    container_name: devops-redis-node3
+    container_name: redis-node3
     restart: unless-stopped
     ports:
       - "7003:7003"
@@ -58,9 +62,10 @@ services:
     networks:
       - devops-network
 
+  # Redis Cluster Node 4
   redis-node4:
     image: redis:7-alpine
-    container_name: devops-redis-node4
+    container_name: redis-node4
     restart: unless-stopped
     ports:
       - "7004:7004"
@@ -71,9 +76,10 @@ services:
     networks:
       - devops-network
 
+  # Redis Cluster Node 5
   redis-node5:
     image: redis:7-alpine
-    container_name: devops-redis-node5
+    container_name: redis-node5
     restart: unless-stopped
     ports:
       - "7005:7005"
@@ -84,9 +90,10 @@ services:
     networks:
       - devops-network
 
+  # Redis Cluster Node 6
   redis-node6:
     image: redis:7-alpine
-    container_name: devops-redis-node6
+    container_name: redis-node6
     restart: unless-stopped
     ports:
       - "7006:7006"
@@ -100,7 +107,7 @@ services:
   # Redis Cluster Creator
   redis-cluster-creator:
     image: redis:7-alpine
-    container_name: devops-redis-cluster-creator
+    container_name: redis-cluster-creator
     restart: "no"
     networks:
       - devops-network
@@ -113,7 +120,7 @@ services:
       - redis-node6
     command: >
       sh -c "
-      sleep 5 &&
+      sleep 10 &&
       redis-cli --cluster create 
       redis-node1:7001 
       redis-node2:7002 
@@ -139,9 +146,9 @@ services:
       PORT: 5000
       MONGO_URI: mongodb://mongodb:27017/devops-demo
       REDIS_URI: redis://redis-node1:7001
-      CORS_ORIGIN: http://98.82.189.42:3000
+      CORS_ORIGIN: http://localhost:3000
       LOG_LEVEL: info
-      DEPLOYMENT_PLATFORM: Docker Compose - Redis Cluster
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB Standalone + Redis Cluster
       ORCHESTRATION: Docker Compose
     depends_on:
       mongodb:
@@ -163,7 +170,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://98.82.189.42:5000/api
+        VITE_API_URL: http://localhost:5000/api
     container_name: devops-frontend
     restart: unless-stopped
     ports:
