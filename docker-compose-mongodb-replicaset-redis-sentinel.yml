@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   # MongoDB Replica Set - Primary
+ # MongoDB Replica Set - Primary
   mongodb-primary:
     image: mongo:7.0
     container_name: mongodb-rs-primary
@@ -83,7 +84,6 @@ services:
         ]
       });
       '
-
   # Redis Master
   redis-master:
     image: redis:7-alpine
@@ -91,11 +91,13 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --bind 0.0.0.0
+    command: redis-server --appendonly yes
     volumes:
       - redis_master_data:/data
     networks:
-      - devops-network
+      devops-network:
+        aliases:
+          - redis-master
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -109,7 +111,7 @@ services:
     restart: unless-stopped
     ports:
       - "6380:6379"
-    command: redis-server --appendonly yes --replicaof redis-master 6379 --bind 0.0.0.0
+    command: redis-server --appendonly yes --replicaof redis-master 6379
     volumes:
       - redis_replica1_data:/data
     networks:
@@ -125,7 +127,7 @@ services:
     restart: unless-stopped
     ports:
       - "6381:6379"
-    command: redis-server --appendonly yes --replicaof redis-master 6379 --bind 0.0.0.0
+    command: redis-server --appendonly yes --replicaof redis-master 6379
     volumes:
       - redis_replica2_data:/data
     networks:
@@ -141,28 +143,34 @@ services:
     restart: unless-stopped
     ports:
       - "26379:26379"
-    volumes:
-      - redis_sentinel1_data:/data
-    command: >
-      sh -c "
-      mkdir -p /data &&
-      echo 'port 26379' > /data/sentinel.conf &&
-      echo 'dir /data' >> /data/sentinel.conf &&
-      echo 'sentinel monitor mymaster redis-master 6379 2' >> /data/sentinel.conf &&
-      echo 'sentinel down-after-milliseconds mymaster 5000' >> /data/sentinel.conf &&
-      echo 'sentinel parallel-syncs mymaster 1' >> /data/sentinel.conf &&
-      echo 'sentinel failover-timeout mymaster 10000' >> /data/sentinel.conf &&
-      echo 'sentinel announce-ip redis-sentinel1' >> /data/sentinel.conf &&
-      echo 'sentinel announce-port 26379' >> /data/sentinel.conf &&
-      echo 'bind 0.0.0.0' >> /data/sentinel.conf &&
-      cat /data/sentinel.conf &&
-      redis-sentinel /data/sentinel.conf
-      "
-    networks:
-      - devops-network
-    depends_on:
-      redis-master:
-        condition: service_healthy
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for redis-master to be resolvable..."
+        until getent hosts redis-master > /dev/null 2>&1; do
+          echo "Waiting for redis-master DNS..."
+          sleep 2
+        done
+        echo "redis-master resolved!"
+        
+        echo "Waiting for redis-master:6379..."
+        until nc -z redis-master 6379; do
+          sleep 2
+        done
+        echo "redis-master is reachable!"
+        
+        cat > /tmp/sentinel.conf <<EOF
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        
+        redis-sentinel /tmp/sentinel.conf
 
   # Redis Sentinel 2
   redis-sentinel2:
@@ -171,28 +179,34 @@ services:
     restart: unless-stopped
     ports:
       - "26380:26379"
-    volumes:
-      - redis_sentinel2_data:/data
-    command: >
-      sh -c "
-      mkdir -p /data &&
-      echo 'port 26379' > /data/sentinel.conf &&
-      echo 'dir /data' >> /data/sentinel.conf &&
-      echo 'sentinel monitor mymaster redis-master 6379 2' >> /data/sentinel.conf &&
-      echo 'sentinel down-after-milliseconds mymaster 5000' >> /data/sentinel.conf &&
-      echo 'sentinel parallel-syncs mymaster 1' >> /data/sentinel.conf &&
-      echo 'sentinel failover-timeout mymaster 10000' >> /data/sentinel.conf &&
-      echo 'sentinel announce-ip redis-sentinel2' >> /data/sentinel.conf &&
-      echo 'sentinel announce-port 26379' >> /data/sentinel.conf &&
-      echo 'bind 0.0.0.0' >> /data/sentinel.conf &&
-      cat /data/sentinel.conf &&
-      redis-sentinel /data/sentinel.conf
-      "
-    networks:
-      - devops-network
-    depends_on:
-      redis-master:
-        condition: service_healthy
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for redis-master to be resolvable..."
+        until getent hosts redis-master > /dev/null 2>&1; do
+          echo "Waiting for redis-master DNS..."
+          sleep 2
+        done
+        echo "redis-master resolved!"
+        
+        echo "Waiting for redis-master:6379..."
+        until nc -z redis-master 6379; do
+          sleep 2
+        done
+        echo "redis-master is reachable!"
+        
+        cat > /tmp/sentinel.conf <<EOF
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        
+        redis-sentinel /tmp/sentinel.conf
 
   # Redis Sentinel 3
   redis-sentinel3:
@@ -201,48 +215,34 @@ services:
     restart: unless-stopped
     ports:
       - "26381:26379"
-    volumes:
-      - redis_sentinel3_data:/data
-    command: >
-      sh -c "
-      mkdir -p /data &&
-      echo 'port 26379' > /data/sentinel.conf &&
-      echo 'dir /data' >> /data/sentinel.conf &&
-      echo 'sentinel monitor mymaster redis-master 6379 2' >> /data/sentinel.conf &&
-      echo 'sentinel down-after-milliseconds mymaster 5000' >> /data/sentinel.conf &&
-      echo 'sentinel parallel-syncs mymaster 1' >> /data/sentinel.conf &&
-      echo 'sentinel failover-timeout mymaster 10000' >> /data/sentinel.conf &&
-      echo 'sentinel announce-ip redis-sentinel3' >> /data/sentinel.conf &&
-      echo 'sentinel announce-port 26379' >> /data/sentinel.conf &&
-      echo 'bind 0.0.0.0' >> /data/sentinel.conf &&
-      cat /data/sentinel.conf &&
-      redis-sentinel /data/sentinel.conf
-      "
-    networks:
-      - devops-network
-    depends_on:
-      redis-master:
-        condition: service_healthy
-
-  # Wait for Sentinels to be ready
-  redis-sentinel-init:
-    image: redis:7-alpine
-    container_name: redis-sentinel-init
-    restart: "no"
-    networks:
-      - devops-network
-    depends_on:
-      - redis-sentinel1
-      - redis-sentinel2
-      - redis-sentinel3
-    command: >
-      sh -c "
-      echo 'Waiting for sentinels to start...' &&
-      sleep 15 &&
-      echo 'Checking Sentinel 1...' &&
-      redis-cli -h redis-sentinel1 -p 26379 SENTINEL masters &&
-      echo 'Sentinels are ready!'
-      "
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for redis-master to be resolvable..."
+        until getent hosts redis-master > /dev/null 2>&1; do
+          echo "Waiting for redis-master DNS..."
+          sleep 2
+        done
+        echo "redis-master resolved!"
+        
+        echo "Waiting for redis-master:6379..."
+        until nc -z redis-master 6379; do
+          sleep 2
+        done
+        echo "redis-master is reachable!"
+        
+        cat > /tmp/sentinel.conf <<EOF
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        
+        redis-sentinel /tmp/sentinel.conf
 
   # Backend API
   backend:
@@ -265,8 +265,12 @@ services:
     depends_on:
       mongodb-init:
         condition: service_completed_successfully
-      redis-sentinel-init:
-        condition: service_completed_successfully
+      redis-sentinel1:
+        condition: service_started
+      redis-sentinel2:
+        condition: service_started
+      redis-sentinel3:
+        condition: service_started
     networks:
       - devops-network
     healthcheck:
@@ -313,10 +317,4 @@ volumes:
   redis_replica1_data:
     driver: local
   redis_replica2_data:
-    driver: local
-  redis_sentinel1_data:
-    driver: local
-  redis_sentinel2_data:
-    driver: local
-  redis_sentinel3_data:
     driver: local
