@@ -43,7 +43,7 @@ class RedisConnection {
       let role = infoObj.role || 'master';
       let clusterNodes = [];
 
-      // Check if cluster mode
+      // Check if cluster mode (highest priority)
       if (infoObj.cluster_enabled === '1') {
         mode = 'cluster';
         try {
@@ -53,17 +53,66 @@ class RedisConnection {
           logger.error('Error getting cluster info:', error.message);
         }
       } 
-      // Check if sentinel mode (would need sentinel connection)
-      else if (role === 'slave' || role === 'master') {
-        mode = infoObj.role === 'sentinel' ? 'sentinel' : 'replication';
+      // Check if it's actually in replication (has slaves or is a slave)
+      else if (role === 'slave') {
+        // This node is a slave, so it's definitely replication
+        mode = 'replication';
+      }
+      else if (role === 'master') {
+        // Check if this master actually has connected slaves
+        const connectedSlaves = parseInt(infoObj.connected_slaves) || 0;
+        
+        if (connectedSlaves > 0) {
+          mode = 'replication';
+          
+          // Get slave information
+          try {
+            const replicationInfo = await this.client.info('replication');
+            const replObj = this.parseRedisInfo(replicationInfo);
+            
+            // Parse slave information
+            for (let i = 0; i < connectedSlaves; i++) {
+              const slaveKey = `slave${i}`;
+              if (replObj[slaveKey]) {
+                clusterNodes.push({
+                  role: 'slave',
+                  info: replObj[slaveKey]
+                });
+              }
+            }
+            
+            // Add master info
+            clusterNodes.unshift({
+              role: 'master',
+              info: 'current'
+            });
+          } catch (error) {
+            logger.error('Error getting replication details:', error.message);
+          }
+        } else {
+          // Master with no slaves = standalone
+          mode = 'standalone';
+        }
+      }
+      
+      // Check for Sentinel (this would require connecting to sentinel, not data node)
+      // Sentinel detection happens when connecting to sentinel port (26379)
+      if (infoObj.redis_mode === 'sentinel') {
+        mode = 'sentinel';
       }
 
       this.status.mode = mode;
       this.status.role = role;
       this.status.clusterNodes = clusterNodes;
 
+      logger.info(`📊 Redis architecture: ${mode} (role: ${role})`);
+
     } catch (error) {
       logger.error('Error getting Redis info:', error.message);
+      // Default to standalone on error
+      this.status.mode = 'standalone';
+      this.status.role = 'master';
+      this.status.clusterNodes = [];
     }
   }
 
