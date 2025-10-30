@@ -257,11 +257,14 @@ services:
       NODE_ENV: production
       PORT: 5000
       MONGO_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/devops-demo?replicaSet=rs0
-      REDIS_URI: redis://redis-sentinel1:26379
+      REDIS_URI: sentinel://redis-sentinel1:26379  # ✅ Changed to sentinel://
+      REDIS_SENTINEL_MASTER: mymaster              # ✅ Added
       CORS_ORIGIN: http://98.82.189.42:3000
       LOG_LEVEL: info
       DEPLOYMENT_PLATFORM: Docker Compose - MongoDB ReplicaSet + Redis Sentinel
       ORCHESTRATION: Docker Compose
+      REDIS_MAX_RETRIES: 30      # ✅ Increased
+      REDIS_RETRY_DELAY: 5000    # ✅ Added
     depends_on:
       mongodb-init:
         condition: service_completed_successfully
@@ -271,6 +274,8 @@ services:
         condition: service_started
       redis-sentinel3:
         condition: service_started
+      redis-master:
+        condition: service_healthy  # ✅ Added dependency on master
     networks:
       - devops-network
     healthcheck:
@@ -278,7 +283,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 90s  # ✅ Increased from 60s
 
   # Frontend Application
   frontend:

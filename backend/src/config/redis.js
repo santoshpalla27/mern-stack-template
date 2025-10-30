@@ -287,42 +287,94 @@ class RedisConnection {
       return;
     }
 
-    const options = {
-      url: redisURI,
-      socket: {
-        connectTimeout: 10000,
-        reconnectStrategy: (retries) => {
-          if (retries > this.maxRetries) {
-            logger.error('❌ Max Redis reconnection attempts reached');
-            this.updateStatus({
-              message: 'Max reconnection attempts reached',
-              lastError: 'Failed to reconnect after maximum retries'
-            });
-            return new Error('Max retries reached');
-          }
-          
-          const delay = Math.min(retries * this.retryDelay, 30000);
-          logger.info(`🔄 Redis reconnect attempt ${retries} in ${delay}ms`);
-          return delay;
-        }
-      },
-      enableReadyCheck: true,
-      maxRetriesPerRequest: 3
-    };
+    // ✅ FIX: Detect if URI points to Sentinel
+    const isSentinelURI = redisURI.includes('26379') || redisURI.toLowerCase().includes('sentinel');
 
-    try {
-      logger.info('🔌 Connecting to Redis...');
-      this.client = redis.createClient(options);
-      this.setupEventListeners();
-      await this.client.connect();
-    } catch (error) {
-      this.updateStatus({
-        connected: false,
-        message: error.message,
-        lastError: error.message
-      });
-      logger.error('❌ Redis connection failed:', error.message);
-      throw error;
+    let options;
+
+    if (isSentinelURI) {
+      // ✅ SENTINEL CONFIGURATION
+      logger.info('🔍 Detected Sentinel configuration');
+      
+      options = {
+        socket: {
+          connectTimeout: 10000,
+          reconnectStrategy: (retries) => {
+            if (retries > this.maxRetries) {
+              logger.error('❌ Max Redis reconnection attempts reached');
+              return new Error('Max retries reached');
+            }
+            const delay = Math.min(retries * this.retryDelay, 30000);
+            logger.info(`🔄 Redis reconnect attempt ${retries} in ${delay}ms`);
+            return delay;
+          }
+        },
+        // ✅ Sentinel-specific options
+        sentinels: [
+          { host: 'redis-sentinel1', port: 26379 },
+          { host: 'redis-sentinel2', port: 26379 },
+          { host: 'redis-sentinel3', port: 26379 }
+        ],
+        name: process.env.REDIS_SENTINEL_MASTER || 'mymaster', // Must match sentinel.conf
+        sentinelRetryStrategy: (retries) => {
+          if (retries > 10) {
+            return new Error('Max sentinel retries');
+          }
+          return Math.min(retries * 1000, 5000);
+        },
+        enableReadyCheck: true,
+        maxRetriesPerRequest: 3
+      };
+
+      try {
+        logger.info('🔌 Connecting to Redis via Sentinel...');
+        this.client = redis.createClient(options);
+        this.setupEventListeners();
+        await this.client.connect();
+        this.isSentinel = true;
+      } catch (error) {
+        this.updateStatus({
+          connected: false,
+          message: error.message,
+          lastError: error.message
+        });
+        logger.error('❌ Redis Sentinel connection failed:', error.message);
+        throw error;
+      }
+    } else {
+      // ✅ STANDARD/CLUSTER CONFIGURATION
+      options = {
+        url: redisURI,
+        socket: {
+          connectTimeout: 10000,
+          reconnectStrategy: (retries) => {
+            if (retries > this.maxRetries) {
+              logger.error('❌ Max Redis reconnection attempts reached');
+              return new Error('Max retries reached');
+            }
+            const delay = Math.min(retries * this.retryDelay, 30000);
+            logger.info(`🔄 Redis reconnect attempt ${retries} in ${delay}ms`);
+            return delay;
+          }
+        },
+        enableReadyCheck: true,
+        maxRetriesPerRequest: 3
+      };
+
+      try {
+        logger.info('🔌 Connecting to Redis...');
+        this.client = redis.createClient(options);
+        this.setupEventListeners();
+        await this.client.connect();
+      } catch (error) {
+        this.updateStatus({
+          connected: false,
+          message: error.message,
+          lastError: error.message
+        });
+        logger.error('❌ Redis connection failed:', error.message);
+        throw error;
+      }
     }
   }
 

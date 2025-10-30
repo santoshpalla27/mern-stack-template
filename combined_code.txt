@@ -1,0 +1,4360 @@
+===== FILE: D:\good projects\mern-stack-template\docker-compose-mongodb-replicaset-redis-sentinel.yml =====
+
+version: '3.8'
+
+services:
+  # MongoDB Replica Set - Primary
+ # MongoDB Replica Set - Primary
+  mongodb-primary:
+    image: mongo:7.0
+    container_name: mongodb-rs-primary
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_primary_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set - Secondary 1
+  mongodb-secondary1:
+    image: mongo:7.0
+    container_name: mongodb-rs-secondary1
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_secondary1_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set - Secondary 2
+  mongodb-secondary2:
+    image: mongo:7.0
+    container_name: mongodb-rs-secondary2
+    restart: unless-stopped
+    ports:
+      - "27019:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_secondary2_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set Initializer
+  mongodb-init:
+    image: mongo:7.0
+    container_name: mongodb-rs-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary1
+      - mongodb-secondary2
+    command: >
+      mongosh --host mongodb-primary:27017 --eval '
+      rs.initiate({
+        _id: "rs0",
+        members: [
+          { _id: 0, host: "mongodb-primary:27017", priority: 2 },
+          { _id: 1, host: "mongodb-secondary1:27017", priority: 1 },
+          { _id: 2, host: "mongodb-secondary2:27017", priority: 1 }
+        ]
+      });
+      '
+  # Redis Master
+  redis-master:
+    image: redis:7-alpine
+    container_name: redis-master
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_master_data:/data
+    networks:
+      devops-network:
+        aliases:
+          - redis-master
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Replica 1
+  redis-replica1:
+    image: redis:7-alpine
+    container_name: redis-replica1
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --replicaof redis-master 6379
+    volumes:
+      - redis_replica1_data:/data
+    networks:
+      - devops-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+
+  # Redis Replica 2
+  redis-replica2:
+    image: redis:7-alpine
+    container_name: redis-replica2
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    command: redis-server --appendonly yes --replicaof redis-master 6379
+    volumes:
+      - redis_replica2_data:/data
+    networks:
+      - devops-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+
+  # Redis Sentinel 1
+  redis-sentinel1:
+    image: redis:7-alpine
+    container_name: redis-sentinel1
+    restart: unless-stopped
+    ports:
+      - "26379:26379"
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for redis-master to be resolvable..."
+        until getent hosts redis-master > /dev/null 2>&1; do
+          echo "Waiting for redis-master DNS..."
+          sleep 2
+        done
+        echo "redis-master resolved!"
+        
+        echo "Waiting for redis-master:6379..."
+        until nc -z redis-master 6379; do
+          sleep 2
+        done
+        echo "redis-master is reachable!"
+        
+        cat > /tmp/sentinel.conf <<EOF
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        
+        redis-sentinel /tmp/sentinel.conf
+
+  # Redis Sentinel 2
+  redis-sentinel2:
+    image: redis:7-alpine
+    container_name: redis-sentinel2
+    restart: unless-stopped
+    ports:
+      - "26380:26379"
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for redis-master to be resolvable..."
+        until getent hosts redis-master > /dev/null 2>&1; do
+          echo "Waiting for redis-master DNS..."
+          sleep 2
+        done
+        echo "redis-master resolved!"
+        
+        echo "Waiting for redis-master:6379..."
+        until nc -z redis-master 6379; do
+          sleep 2
+        done
+        echo "redis-master is reachable!"
+        
+        cat > /tmp/sentinel.conf <<EOF
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        
+        redis-sentinel /tmp/sentinel.conf
+
+  # Redis Sentinel 3
+  redis-sentinel3:
+    image: redis:7-alpine
+    container_name: redis-sentinel3
+    restart: unless-stopped
+    ports:
+      - "26381:26379"
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for redis-master to be resolvable..."
+        until getent hosts redis-master > /dev/null 2>&1; do
+          echo "Waiting for redis-master DNS..."
+          sleep 2
+        done
+        echo "redis-master resolved!"
+        
+        echo "Waiting for redis-master:6379..."
+        until nc -z redis-master 6379; do
+          sleep 2
+        done
+        echo "redis-master is reachable!"
+        
+        cat > /tmp/sentinel.conf <<EOF
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        
+        redis-sentinel /tmp/sentinel.conf
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/devops-demo?replicaSet=rs0
+      REDIS_URI: redis://redis-sentinel1:26379
+      CORS_ORIGIN: http://98.82.189.42:3000
+      LOG_LEVEL: info
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB ReplicaSet + Redis Sentinel
+      ORCHESTRATION: Docker Compose
+    depends_on:
+      mongodb-init:
+        condition: service_completed_successfully
+      redis-sentinel1:
+        condition: service_started
+      redis-sentinel2:
+        condition: service_started
+      redis-sentinel3:
+        condition: service_started
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://98.82.189.42:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongodb_primary_data:
+    driver: local
+  mongodb_secondary1_data:
+    driver: local
+  mongodb_secondary2_data:
+    driver: local
+  redis_master_data:
+    driver: local
+  redis_replica1_data:
+    driver: local
+  redis_replica2_data:
+    driver: local
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\docker-compose-mongodb-replicaset-redis-standalone.yml =====
+
+version: '3.8'
+
+services:
+  # MongoDB Replica Set - Primary
+ # MongoDB Replica Set - Primary
+  mongodb-primary:
+    image: mongo:7.0
+    container_name: mongodb-rs-primary
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_primary_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set - Secondary 1
+  mongodb-secondary1:
+    image: mongo:7.0
+    container_name: mongodb-rs-secondary1
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_secondary1_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set - Secondary 2
+  mongodb-secondary2:
+    image: mongo:7.0
+    container_name: mongodb-rs-secondary2
+    restart: unless-stopped
+    ports:
+      - "27019:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_secondary2_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set Initializer
+  mongodb-init:
+    image: mongo:7.0
+    container_name: mongodb-rs-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary1
+      - mongodb-secondary2
+    command: >
+      mongosh --host mongodb-primary:27017 --eval '
+      rs.initiate({
+        _id: "rs0",
+        members: [
+          { _id: 0, host: "mongodb-primary:27017", priority: 2 },
+          { _id: 1, host: "mongodb-secondary1:27017", priority: 1 },
+          { _id: 2, host: "mongodb-secondary2:27017", priority: 1 }
+        ]
+      });
+      '
+
+  # Redis - Standalone
+  redis:
+    image: redis:7-alpine
+    container_name: redis-standalone
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/devops-demo?replicaSet=rs0
+      REDIS_URI: redis://redis:6379
+      CORS_ORIGIN: http://98.82.189.42:3000
+      LOG_LEVEL: info
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB ReplicaSet + Redis Standalone
+      ORCHESTRATION: Docker Compose
+    depends_on:
+      mongodb-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://98.82.189.42:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongodb_primary_data:
+    driver: local
+  mongodb_secondary1_data:
+    driver: local
+  mongodb_secondary2_data:
+    driver: local
+  redis_data:
+    driver: local
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\docker-compose-mongodb-sharded-redis-cluster.yml =====
+
+version: '3.8'
+
+services:
+  # MongoDB Config Server 1
+  mongo-config1:
+    image: mongo:7.0
+    container_name: mongo-config1
+    restart: unless-stopped
+    command: mongod --configsvr --replSet configReplSet --bind_ip_all --port 27019
+    ports:
+      - "27019:27019"
+    volumes:
+      - mongo_config1_data:/data/db
+    networks:
+      - devops-network
+
+  # MongoDB Config Server 2
+  mongo-config2:
+    image: mongo:7.0
+    container_name: mongo-config2
+    restart: unless-stopped
+    command: mongod --configsvr --replSet configReplSet --bind_ip_all --port 27019
+    ports:
+      - "27020:27019"
+    volumes:
+      - mongo_config2_data:/data/db
+    networks:
+      - devops-network
+
+  # MongoDB Config Server 3
+  mongo-config3:
+    image: mongo:7.0
+    container_name: mongo-config3
+    restart: unless-stopped
+    command: mongod --configsvr --replSet configReplSet --bind_ip_all --port 27019
+    ports:
+      - "27021:27019"
+    volumes:
+      - mongo_config3_data:/data/db
+    networks:
+      - devops-network
+
+  # Initialize Config Server Replica Set
+  mongo-config-init:
+    image: mongo:7.0
+    container_name: mongo-config-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongo-config1
+      - mongo-config2
+      - mongo-config3
+    command: >
+      mongosh --host mongo-config1:27019 --eval '
+      rs.initiate({
+        _id: "configReplSet",
+        configsvr: true,
+        members: [
+          { _id: 0, host: "mongo-config1:27019" },
+          { _id: 1, host: "mongo-config2:27019" },
+          { _id: 2, host: "mongo-config3:27019" }
+        ]
+      });
+      '
+
+  # Shard 1 - Primary
+  mongo-shard1-primary:
+    image: mongo:7.0
+    container_name: mongo-shard1-primary
+    restart: unless-stopped
+    command: mongod --shardsvr --replSet shard1ReplSet --bind_ip_all --port 27018
+    ports:
+      - "27022:27018"
+    volumes:
+      - mongo_shard1_primary_data:/data/db
+    networks:
+      - devops-network
+
+  # Shard 1 - Secondary
+  mongo-shard1-secondary:
+    image: mongo:7.0
+    container_name: mongo-shard1-secondary
+    restart: unless-stopped
+    command: mongod --shardsvr --replSet shard1ReplSet --bind_ip_all --port 27018
+    ports:
+      - "27023:27018"
+    volumes:
+      - mongo_shard1_secondary_data:/data/db
+    networks:
+      - devops-network
+
+  # Initialize Shard 1 Replica Set
+  mongo-shard1-init:
+    image: mongo:7.0
+    container_name: mongo-shard1-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongo-shard1-primary
+      - mongo-shard1-secondary
+    command: >
+      mongosh --host mongo-shard1-primary:27018 --eval '
+      rs.initiate({
+        _id: "shard1ReplSet",
+        members: [
+          { _id: 0, host: "mongo-shard1-primary:27018" },
+          { _id: 1, host: "mongo-shard1-secondary:27018" }
+        ]
+      });
+      '
+
+  # Shard 2 - Primary
+  mongo-shard2-primary:
+    image: mongo:7.0
+    container_name: mongo-shard2-primary
+    restart: unless-stopped
+    command: mongod --shardsvr --replSet shard2ReplSet --bind_ip_all --port 27018
+    ports:
+      - "27024:27018"
+    volumes:
+      - mongo_shard2_primary_data:/data/db
+    networks:
+      - devops-network
+
+  # Shard 2 - Secondary
+  mongo-shard2-secondary:
+    image: mongo:7.0
+    container_name: mongo-shard2-secondary
+    restart: unless-stopped
+    command: mongod --shardsvr --replSet shard2ReplSet --bind_ip_all --port 27018
+    ports:
+      - "27025:27018"
+    volumes:
+      - mongo_shard2_secondary_data:/data/db
+    networks:
+      - devops-network
+
+  # Initialize Shard 2 Replica Set
+  mongo-shard2-init:
+    image: mongo:7.0
+    container_name: mongo-shard2-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - mongo-shard2-primary
+      - mongo-shard2-secondary
+    command: >
+      mongosh --host mongo-shard2-primary:27018 --eval '
+      rs.initiate({
+        _id: "shard2ReplSet",
+        members: [
+          { _id: 0, host: "mongo-shard2-primary:27018" },
+          { _id: 1, host: "mongo-shard2-secondary:27018" }
+        ]
+      });
+      '
+
+  # Mongos Router
+  mongos:
+    image: mongo:7.0
+    container_name: mongos-router
+    restart: unless-stopped
+    command: mongos --configdb configReplSet/mongo-config1:27019,mongo-config2:27019,mongo-config3:27019 --bind_ip_all --port 27017
+    ports:
+      - "27017:27017"
+    networks:
+      - devops-network
+    depends_on:
+      mongo-config-init:
+        condition: service_completed_successfully
+
+  # Add Shards to Cluster
+  mongo-cluster-init:
+    image: mongo:7.0
+    container_name: mongo-cluster-init
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      mongo-shard1-init:
+        condition: service_completed_successfully
+      mongo-shard2-init:
+        condition: service_completed_successfully
+      mongos:
+        condition: service_started
+    command: >
+      sh -c "
+      sleep 20 &&
+      mongosh --host mongos:27017 --eval '
+      sh.addShard(\"shard1ReplSet/mongo-shard1-primary:27018,mongo-shard1-secondary:27018\");
+      sh.addShard(\"shard2ReplSet/mongo-shard2-primary:27018,mongo-shard2-secondary:27018\");
+      sh.enableSharding(\"devops-demo\");
+      '
+      "
+
+  # Redis Cluster Node 1
+  redis-node1:
+    image: redis:7-alpine
+    container_name: redis-node1
+    restart: unless-stopped
+    ports:
+      - "7001:7001"
+      - "17001:17001"
+    command: redis-server --port 7001 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node1_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 2
+  redis-node2:
+    image: redis:7-alpine
+    container_name: redis-node2
+    restart: unless-stopped
+    ports:
+      - "7002:7002"
+      - "17002:17002"
+    command: redis-server --port 7002 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node2_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 3
+  redis-node3:
+    image: redis:7-alpine
+    container_name: redis-node3
+    restart: unless-stopped
+    ports:
+      - "7003:7003"
+      - "17003:17003"
+    command: redis-server --port 7003 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node3_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 4
+  redis-node4:
+    image: redis:7-alpine
+    container_name: redis-node4
+    restart: unless-stopped
+    ports:
+      - "7004:7004"
+      - "17004:17004"
+    command: redis-server --port 7004 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node4_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 5
+  redis-node5:
+    image: redis:7-alpine
+    container_name: redis-node5
+    restart: unless-stopped
+    ports:
+      - "7005:7005"
+      - "17005:17005"
+    command: redis-server --port 7005 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node5_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 6
+  redis-node6:
+    image: redis:7-alpine
+    container_name: redis-node6
+    restart: unless-stopped
+    ports:
+      - "7006:7006"
+      - "17006:17006"
+    command: redis-server --port 7006 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node6_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Creator
+  redis-cluster-creator:
+    image: redis:7-alpine
+    container_name: redis-cluster-creator
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - redis-node1
+      - redis-node2
+      - redis-node3
+      - redis-node4
+      - redis-node5
+      - redis-node6
+    command: >
+      sh -c "
+      sleep 10 &&
+      redis-cli --cluster create 
+      redis-node1:7001 
+      redis-node2:7002 
+      redis-node3:7003 
+      redis-node4:7004 
+      redis-node5:7005 
+      redis-node6:7006 
+      --cluster-replicas 1 
+      --cluster-yes
+      "
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongos:27017/devops-demo
+      REDIS_URI: redis://redis-node1:7001
+      CORS_ORIGIN: http://98.82.189.42:3000
+      LOG_LEVEL: info
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB Sharded Cluster + Redis Cluster
+      ORCHESTRATION: Docker Compose
+    depends_on:
+      mongo-cluster-init:
+        condition: service_completed_successfully
+      redis-cluster-creator:
+        condition: service_completed_successfully
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://98.82.189.42:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongo_config1_data:
+    driver: local
+  mongo_config2_data:
+    driver: local
+  mongo_config3_data:
+    driver: local
+  mongo_shard1_primary_data:
+    driver: local
+  mongo_shard1_secondary_data:
+    driver: local
+  mongo_shard2_primary_data:
+    driver: local
+  mongo_shard2_secondary_data:
+    driver: local
+  redis_node1_data:
+    driver: local
+  redis_node2_data:
+    driver: local
+  redis_node3_data:
+    driver: local
+  redis_node4_data:
+    driver: local
+  redis_node5_data:
+    driver: local
+  redis_node6_data:
+    driver: local
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\docker-compose-mongodb-standalone-redis-cluster.yml =====
+
+version: '3.8'
+
+services:
+  # MongoDB - Standalone
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-standalone
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cluster Node 1
+  redis-node1:
+    image: redis:7-alpine
+    container_name: redis-node1
+    restart: unless-stopped
+    ports:
+      - "7001:7001"
+      - "17001:17001"
+    command: redis-server --port 7001 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node1_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 2
+  redis-node2:
+    image: redis:7-alpine
+    container_name: redis-node2
+    restart: unless-stopped
+    ports:
+      - "7002:7002"
+      - "17002:17002"
+    command: redis-server --port 7002 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node2_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 3
+  redis-node3:
+    image: redis:7-alpine
+    container_name: redis-node3
+    restart: unless-stopped
+    ports:
+      - "7003:7003"
+      - "17003:17003"
+    command: redis-server --port 7003 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node3_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 4
+  redis-node4:
+    image: redis:7-alpine
+    container_name: redis-node4
+    restart: unless-stopped
+    ports:
+      - "7004:7004"
+      - "17004:17004"
+    command: redis-server --port 7004 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node4_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 5
+  redis-node5:
+    image: redis:7-alpine
+    container_name: redis-node5
+    restart: unless-stopped
+    ports:
+      - "7005:7005"
+      - "17005:17005"
+    command: redis-server --port 7005 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node5_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Node 6
+  redis-node6:
+    image: redis:7-alpine
+    container_name: redis-node6
+    restart: unless-stopped
+    ports:
+      - "7006:7006"
+      - "17006:17006"
+    command: redis-server --port 7006 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis_node6_data:/data
+    networks:
+      - devops-network
+
+  # Redis Cluster Creator
+  redis-cluster-creator:
+    image: redis:7-alpine
+    container_name: redis-cluster-creator
+    restart: "no"
+    networks:
+      - devops-network
+    depends_on:
+      - redis-node1
+      - redis-node2
+      - redis-node3
+      - redis-node4
+      - redis-node5
+      - redis-node6
+    command: >
+      sh -c "
+      sleep 10 &&
+      redis-cli --cluster create 
+      redis-node1:7001 
+      redis-node2:7002 
+      redis-node3:7003 
+      redis-node4:7004 
+      redis-node5:7005 
+      redis-node6:7006 
+      --cluster-replicas 1 
+      --cluster-yes
+      "
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongodb:27017/devops-demo
+      REDIS_URI: redis://redis-node1:7001
+      CORS_ORIGIN: http://98.82.189.42:3000
+      LOG_LEVEL: info
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB Standalone + Redis Cluster
+      ORCHESTRATION: Docker Compose
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis-cluster-creator:
+        condition: service_completed_successfully
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://98.82.189.42:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_node1_data:
+    driver: local
+  redis_node2_data:
+    driver: local
+  redis_node3_data:
+    driver: local
+  redis_node4_data:
+    driver: local
+  redis_node5_data:
+    driver: local
+  redis_node6_data:
+    driver: local
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\docker-compose-mongodb-standalone-redis-replication.yml =====
+
+version: '3.8'
+
+services:
+  # MongoDB - Standalone
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-standalone
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Master
+  redis-master:
+    image: redis:7-alpine
+    container_name: redis-master
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_master_data:/data
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Replica 1
+  redis-replica1:
+    image: redis:7-alpine
+    container_name: redis-replica1
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --replicaof redis-master 6379
+    volumes:
+      - redis_replica1_data:/data
+    networks:
+      - devops-network
+    depends_on:
+      - redis-master
+
+  # Redis Replica 2
+  redis-replica2:
+    image: redis:7-alpine
+    container_name: redis-replica2
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    command: redis-server --appendonly yes --replicaof redis-master 6379
+    volumes:
+      - redis_replica2_data:/data
+    networks:
+      - devops-network
+    depends_on:
+      - redis-master
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongodb:27017/devops-demo
+      REDIS_URI: redis://redis-master:6379
+      CORS_ORIGIN: http://98.82.189.42:3000
+      LOG_LEVEL: info
+      DEPLOYMENT_PLATFORM: Docker Compose - MongoDB Standalone + Redis Replication
+      ORCHESTRATION: Docker Compose
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://98.82.189.42:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_master_data:
+    driver: local
+  redis_replica1_data:
+    driver: local
+  redis_replica2_data:
+    driver: local
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\docker-compose-standalone.yml =====
+
+version: '3.8'
+
+services:
+  # MongoDB - Standalone
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-standalone
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Standalone
+  redis:
+    image: redis:7-alpine
+    container_name: redis-standalone
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongodb:27017/devops-demo
+      REDIS_URI: redis://redis:6379
+      CORS_ORIGIN: http://98.82.189.42:3000
+      LOG_LEVEL: info
+      DEPLOYMENT_PLATFORM: Docker Compose - Standalone
+      ORCHESTRATION: Docker Compose
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://98.82.189.42:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\docker-compose.yml =====
+
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: devops-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: devops-demo
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - devops-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: devops-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devops-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongodb:27017/devops-demo
+      REDIS_URI: redis://redis:6379
+      CORS_ORIGIN: http://98.82.189.42:3000
+      LOG_LEVEL: info
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://98.82.189.42:5000/api
+    container_name: devops-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - devops-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\README.md =====
+
+# MERN DevOps Demo Application
+
+A production-ready MERN stack application designed for DevOps infrastructure testing, connectivity monitoring, and CI/CD pipeline demonstrations.
+
+## 🎯 Purpose
+
+This application is specifically built for DevOps engineers to:
+- Test and validate infrastructure connectivity
+- Demonstrate CI/CD pipeline implementations
+- Monitor service health and status
+- Validate containerization and orchestration
+- Test deployment strategies
+
+## 🏗️ Architecture
+
+```
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│   Frontend  │─────▶│   Backend   │─────▶│   MongoDB   │
+│   (React)   │      │  (Express)  │      │             │
+└─────────────┘      └─────────────┘      └─────────────┘
+                            │
+                            │
+                            ▼
+                     ┌─────────────┐
+                     │    Redis    │
+                     │  (Optional) │
+                     └─────────────┘
+```
+
+## 📋 Features
+
+### Backend (Node.js + Express)
+- ✅ Health check endpoint
+- ✅ Detailed status reporting
+- ✅ MongoDB connectivity monitoring
+- ✅ Redis connectivity monitoring (optional)
+- ✅ Application uptime tracking
+- ✅ Structured logging with Winston
+- ✅ Error handling middleware
+- ✅ CORS configuration
+- ✅ Environment-based configuration
+
+### Frontend (React + Vite)
+- ✅ Real-time status dashboard
+- ✅ Auto-refresh functionality
+- ✅ Service connectivity indicators
+- ✅ Uptime display
+- ✅ Responsive design with TailwindCSS
+- ✅ Error handling and retry logic
+
+### DevOps Features
+- ✅ Multi-stage Docker builds
+- ✅ Health checks for all services
+- ✅ Non-root user execution
+- ✅ Docker Compose orchestration
+- ✅ Volume persistence
+- ✅ Network isolation
+- ✅ Production-ready configurations
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker & Docker Compose
+- Node.js 20+ (for local development)
+
+### Using Docker Compose (Recommended)
+
+1. **Clone and navigate to the project:**
+```bash
+git clone <repository-url>
+cd mern-devops-demo
+```
+
+2. **Start all services:**
+```bash
+docker-compose up -d
+```
+
+3. **Access the application:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:5000/api
+- MongoDB: localhost:27017
+- Redis: localhost:6379
+
+4. **View logs:**
+```bash
+docker-compose logs -f
+```
+
+5. **Stop all services:**
+```bash
+docker-compose down
+```
+
+6. **Stop and remove volumes:**
+```bash
+docker-compose down -v
+```
+
+### Local Development
+
+#### Backend
+```bash
+cd backend
+npm install
+cp .env.example .env
+# Edit .env with your configuration
+npm run dev
+```
+
+#### Frontend
+```bash
+cd frontend
+npm install
+# Create .env file
+echo "VITE_API_URL=http://localhost:5000/api" > .env
+npm run dev
+```
+
+## 📡 API Endpoints
+
+### `GET /api/`
+Returns basic backend status
+```json
+{
+  "status": "Backend running",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "environment": "production"
+}
+```
+
+### `GET /api/health`
+Health check endpoint for monitoring tools
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### `GET /api/status`
+Detailed status of all services
+```json
+{
+  "application": {
+    "name": "MERN DevOps Demo",
+    "version": "1.0.0",
+    "environment": "production",
+    "status": "running"
+  },
+  "uptime": {
+    "milliseconds": 123456,
+    "seconds": 123,
+    "formatted": "0d 0h 2m 3s"
+  },
+  "services": {
+    "mongodb": {
+      "connected": true,
+      "message": "Connected",
+      "lastChecked": "2024-01-01T00:00:00.000Z"
+    },
+    "redis": {
+      "connected": true,
+      "message": "Connected",
+      "lastChecked": "2024-01-01T00:00:00.000Z"
+    }
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+## 🐳 Docker Commands
+
+### Build Images
+```bash
+# Backend
+docker build -t mern-devops-backend ./backend
+
+# Frontend
+docker build -t mern-devops-frontend ./frontend
+```
+
+### Run Containers Individually
+```bash
+# MongoDB
+docker run -d -p 27017:27017 --name mongodb mongo:7.0
+
+# Redis
+docker run -d -p 6379:6379 --name redis redis:7-alpine
+
+# Backend
+docker run -d -p 5000:5000 \
+  -e MONGO_URI=mongodb://mongodb:27017/devops-demo \
+  -e REDIS_URI=redis://redis:6379 \
+  --name backend mern-devops-backend
+
+# Frontend
+docker run -d -p 3000:3000 --name frontend mern-devops-frontend
+```
+
+## 🔧 Configuration
+
+### Backend Environment Variables
+```env
+PORT=5000                    # Server port
+NODE_ENV=production          # Environment mode
+LOG_LEVEL=info              # Logging level
+CORS_ORIGIN=*               # CORS allowed origins
+MONGO_URI=mongodb://...     # MongoDB connection string
+REDIS_URI=redis://...       # Redis connection string (optional)
+```
+
+### Frontend Environment Variables
+```env
+VITE_API_URL=http://localhost:5000/api  # Backend API URL
+```
+
+## 📊 Monitoring
+
+### Health Checks
+All services include health checks:
+- **Backend**: `http://localhost:5000/api/health`
+- **Frontend**: `http://localhost:3000`
+- **MongoDB**: Internal mongosh ping
+- **Redis**: redis-cli ping
+
+### Logging
+Backend uses Winston for structured logging:
+- Console output with colorization
+- JSON format for production
+- Configurable log levels
+
+
+## 🧪 Testing Scenarios
+
+This application is ideal for testing:
+- ✅ Container orchestration
+- ✅ Service discovery
+- ✅ Network connectivity
+- ✅ Volume persistence
+- ✅ Health check implementations
+- ✅ Rolling deployments
+- ✅ Blue-green deployments
+- ✅ Canary releases
+- ✅ Load balancing
+- ✅ Auto-scaling
+- ✅ Monitoring integration
+- ✅ Logging aggregation
+
+## 📈 Kubernetes Deployment
+
+Example Kubernetes manifests would include:
+- Deployments for frontend, backend
+- StatefulSets for MongoDB, Redis
+- Services for inter-pod communication
+- ConfigMaps for configuration
+- Secrets for sensitive data
+- Ingress for external access
+- HPA for auto-scaling
+
+## 🔒 Security Considerations
+
+- Non-root user in containers
+- No sensitive data in images
+- Environment-based configuration
+- CORS properly configured
+- Security headers in nginx
+- Health check timeouts
+- Graceful shutdown handling
+
+## 🤝 Contributing
+
+This is a demo application for DevOps testing. Feel free to:
+- Add more monitoring endpoints
+- Integrate with APM tools
+- Add more database examples
+- Enhance logging
+- Add metrics endpoints
+
+## 📝 License
+
+MIT License - Free for educational and commercial use
+
+## 🆘 Troubleshooting
+
+### Backend can't connect to MongoDB
+```bash
+# Check MongoDB is running
+docker-compose ps
+# Check MongoDB logs
+docker-compose logs mongodb
+# Verify network
+docker network inspect mern-devops-demo_devops-network
+```
+
+### Frontend can't reach backend
+```bash
+# Check CORS configuration in backend
+# Verify VITE_API_URL in frontend build
+# Check backend logs
+docker-compose logs backend
+```
+
+### Services fail health checks
+```bash
+# Increase start_period in docker-compose.yml
+# Check service logs
+docker-compose logs [service-name]
+```
+
+## 📞 Support
+
+For DevOps-related questions or issues:
+- Check logs: `docker-compose logs -f`
+- Verify environment variables
+- Check service health: `docker-compose ps`
+- Inspect networks: `docker network ls`
+
+---
+
+**Built for DevOps Engineers | Production-Ready | Container-Native**
+
+
+
+==================================================================
+
+
+To Extend Retry Time:
+# Backend .env
+
+MONGO_MAX_RETRIES=20
+MONGO_RETRY_DELAY=10000
+REDIS_MAX_RETRIES=20
+REDIS_RETRY_DELAY=10000
+
+The App Already Has Infinite Retry Capability:
+1. Continuous Reconnection (Infinite Retry)
+mongoose.connection.on('disconnected', () => {
+  // This triggers automatic reconnection
+  // Will keep trying forever until connected
+});
+MongoDB's driver has built-in automatic reconnection
+Redis client also has built-in reconnection strategy
+They keep trying indefinitely in the background
+2. Initial Connection vs Ongoing Connection
+The maxRetries (10 attempts, ~4.5 min) only applies to:
+
+Initial connection attempt when app starts
+After max retries, the app doesn't crash - it continues running
+Background reconnection continues forever
+3. What Actually Happens:
+App starts → Try connecting (10 attempts, ~4.5 min)
+  ↓
+If fails after 10 attempts:
+  ✅ App still runs (doesn't crash)
+  ✅ MongoDB/Redis keep trying to reconnect forever
+  ✅ Frontend shows "Disconnected" status
+  ✅ When DB comes back online → Auto reconnects
+  ↓
+Connection restored automatically ✓
+Real-World Scenario:
+Time 0:00 - App starts, MongoDB is down
+Time 0:00-4:30 - Tries 10 times (initial retry)
+Time 4:30 - Gives up initial connection
+Time 4:30+ - App runs, keeps trying in background (forever)
+Time 10:00 - MongoDB comes online
+Time 10:00 - Auto-reconnects immediately ✓
+So Extending Retry Time Only Helps If:
+You want the app to wait longer during startup before accepting traffic
+You're using health checks that fail if DB isn't connected initially
+You want cleaner startup logs (fewer "still trying..." messages)
+For Your Template Use Case:
+Current settings are perfect because:
+
+✅ App doesn't crash if DB is down
+✅ Auto-reconnects when DB comes back
+✅ Developers see real-world resilient behavior
+✅ Shows production-ready patterns
+Verdict: No need to extend retry time. The continuous background reconnection handles everything.
+
+=======================================================================================================
+
+## Docker Compose Architecture Overview
+
+The following table summarizes the different Docker Compose configurations available with their corresponding database architectures:
+
+| File Name | MongoDB Architecture | Redis Architecture |
+|-----------|---------------------|-------------------|
+| docker-compose-standalone.yml | Standalone | Standalone |
+| docker-compose-mongodb-replicaset-redis-standalone.yml | Replica Set (3 nodes) | Standalone |
+| docker-compose-mongodb-standalone-redis-replication.yml | Standalone | Master-Replica (1+2) |
+| docker-compose-mongodb-replicaset-redis-sentinel.yml | Replica Set (3 nodes) | Sentinel (3 sentinels) |
+| docker-compose-mongodb-standalone-redis-cluster.yml | Standalone | Cluster (6 nodes) |
+| docker-compose-mongodb-sharded-redis-cluster.yml | Sharded (2 shards + config servers) | Cluster (6 nodes) |
+
+docker compose -f filename up -d 
+docker compose -f filename down -v
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\Dockerfile =====
+
+# Multi-stage build for production
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Production stage
+FROM node:20-alpine
+
+# Add non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+# Copy dependencies from builder
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy application code
+COPY --chown=nodejs:nodejs . .
+
+# Switch to non-root user
+USER nodejs
+
+# Expose port
+EXPOSE 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+# Start application
+CMD ["node", "src/server.js"]
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\package.json =====
+
+{
+  "name": "mern-devops-backend",
+  "version": "2.0.0",
+  "description": "DevOps connectivity testing backend with architecture support",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^8.0.3",
+    "redis": "^4.6.12",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "winston": "^3.11.0",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\src\server.js =====
+
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const mongoConnection = require('./config/mongodb');
+const redisConnection = require('./config/redis');
+const statusRoutes = require('./routes/status');
+const architectureRoutes = require('./routes/architecture');
+const logger = require('./utils/logger');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  credentials: true
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Request logging middleware
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.path} - ${req.ip}`);
+  next();
+});
+
+// Routes
+app.use('/api', statusRoutes);
+app.use('/api/architecture', architectureRoutes);
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: 'The requested endpoint does not exist',
+    path: req.originalUrl,
+    availableEndpoints: [
+      '/api/',
+      '/api/health',
+      '/api/status',
+      '/api/architecture'
+    ]
+  });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  logger.error('Unhandled error:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'production' ? 'An error occurred' : err.message,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Initialize connections
+const initializeConnections = async () => {
+  logger.info('🚀 Initializing connections...');
+  
+  // MongoDB connection
+  try {
+    await mongoConnection.connect();
+  } catch (error) {
+    logger.error('MongoDB initial connection failed, will retry in background');
+  }
+  
+  // Redis connection
+  try {
+    await redisConnection.connect();
+  } catch (error) {
+    logger.error('Redis initial connection failed, will retry in background');
+  }
+  
+  logger.info('✅ Connection initialization completed');
+};
+
+// Graceful shutdown
+const gracefulShutdown = async (signal) => {
+  logger.info(`\n${signal} received, closing server gracefully...`);
+  
+  // Stop accepting new connections
+  server.close(async () => {
+    logger.info('HTTP server closed');
+    
+    // Close database connections
+    try {
+      await Promise.all([
+        mongoConnection.disconnect(),
+        redisConnection.disconnect()
+      ]);
+      logger.info('All connections closed');
+      process.exit(0);
+    } catch (error) {
+      logger.error('Error during graceful shutdown:', error);
+      process.exit(1);
+    }
+  });
+
+  // Force shutdown after timeout
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000); // 30 seconds timeout
+};
+
+// Process event handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Start server
+const server = app.listen(PORT, '0.0.0.0', async () => {
+  logger.info(`🚀 Server running on port ${PORT}`);
+  logger.info(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`🔗 API Base URL: http://localhost:${PORT}/api`);
+  
+  // Initialize connections after server starts
+  await initializeConnections();
+  
+  logger.info('✨ Application ready to accept connections');
+});
+
+// Handle server errors
+server.on('error', (error) => {
+  logger.error('Server error:', error);
+  process.exit(1);
+});
+
+module.exports = app;
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\src\config\database.js =====
+
+const mongoose = require('mongoose');
+const logger = require('../utils/logger');
+
+let mongoStatus = {
+  connected: false,
+  message: 'Not initialized',
+  lastChecked: null
+};
+
+const connectMongoDB = async () => {
+  const mongoURI = process.env.MONGO_URI || 'mongodb://mongodb:27017/devops-demo';
+  
+  try {
+    await mongoose.connect(mongoURI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+    
+    mongoStatus = {
+      connected: true,
+      message: 'Connected successfully',
+      lastChecked: new Date().toISOString()
+    };
+    
+    logger.info('MongoDB connected successfully');
+  } catch (error) {
+    mongoStatus = {
+      connected: false,
+      message: error.message,
+      lastChecked: new Date().toISOString()
+    };
+    
+    logger.error('MongoDB connection error:', error.message);
+  }
+};
+
+// MongoDB connection event listeners
+mongoose.connection.on('connected', () => {
+  mongoStatus = {
+    connected: true,
+    message: 'Connected',
+    lastChecked: new Date().toISOString()
+  };
+  logger.info('MongoDB connection established');
+});
+
+mongoose.connection.on('error', (err) => {
+  mongoStatus = {
+    connected: false,
+    message: err.message,
+    lastChecked: new Date().toISOString()
+  };
+  logger.error('MongoDB connection error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  mongoStatus = {
+    connected: false,
+    message: 'Disconnected',
+    lastChecked: new Date().toISOString()
+  };
+  logger.warn('MongoDB disconnected');
+});
+
+const getMongoStatus = () => mongoStatus;
+
+module.exports = { connectMongoDB, getMongoStatus };
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\src\config\mongodb.js =====
+
+const mongoose = require('mongoose');
+const logger = require('../utils/logger');
+
+class MongoDBConnection {
+  constructor() {
+    this.status = {
+      connected: false,
+      message: 'Not initialized',
+      lastChecked: null,
+      connectionAttempts: 0,
+      lastError: null,
+      topology: null,
+      replicaSet: null,
+      nodes: []
+    };
+    
+    this.maxRetries = parseInt(process.env.MONGO_MAX_RETRIES) || 10;
+    this.retryDelay = parseInt(process.env.MONGO_RETRY_DELAY) || 5000;
+    this.currentRetry = 0;
+    this.isReconnecting = false;
+    
+    this.setupEventListeners();
+  }
+
+  setupEventListeners() {
+    // Connection successful
+    mongoose.connection.on('connected', () => {
+      this.currentRetry = 0;
+      this.isReconnecting = false;
+      this.updateStatus({
+        connected: true,
+        message: 'Connected successfully',
+        lastError: null
+      });
+      this.updateTopology();
+      logger.info('✅ MongoDB connected successfully');
+    });
+
+    // Connection error
+    mongoose.connection.on('error', (err) => {
+      this.updateStatus({
+        connected: false,
+        message: 'Connection error',
+        lastError: err.message
+      });
+      logger.error('❌ MongoDB connection error:', err.message);
+    });
+
+    // Disconnected
+    mongoose.connection.on('disconnected', () => {
+      this.updateStatus({
+        connected: false,
+        message: 'Disconnected',
+        topology: null,
+        nodes: []
+      });
+      logger.warn('⚠️  MongoDB disconnected');
+      
+      // Attempt reconnection if not already reconnecting
+      if (!this.isReconnecting && this.currentRetry < this.maxRetries) {
+        this.handleReconnection();
+      }
+    });
+
+    // Reconnected
+    mongoose.connection.on('reconnected', () => {
+      this.currentRetry = 0;
+      this.isReconnecting = false;
+      this.updateStatus({
+        connected: true,
+        message: 'Reconnected successfully',
+        lastError: null
+      });
+      this.updateTopology();
+      logger.info('🔄 MongoDB reconnected');
+    });
+
+    // Connection timeout
+    mongoose.connection.on('timeout', () => {
+      logger.warn('⏱️  MongoDB connection timeout');
+    });
+
+    // Replica set events
+    mongoose.connection.on('fullsetup', () => {
+      logger.info('📦 MongoDB replica set fully connected');
+      this.updateTopology();
+    });
+
+    mongoose.connection.on('all', () => {
+      logger.info('🌐 All MongoDB servers connected');
+      this.updateTopology();
+    });
+  }
+
+  updateStatus(updates) {
+    this.status = {
+      ...this.status,
+      ...updates,
+      lastChecked: new Date().toISOString(),
+      connectionAttempts: this.status.connectionAttempts + 1
+    };
+  }
+
+  async updateTopology() {
+    try {
+      const admin = mongoose.connection.db.admin();
+      
+      // Get server status
+      const serverStatus = await admin.serverStatus();
+      
+      // Detect topology type
+      let topology = 'standalone';
+      let replicaSet = null;
+      let nodes = [];
+
+      // Check if it's actually a replica set (must have setName)
+      if (serverStatus.repl && serverStatus.repl.setName) {
+        topology = 'replicaSet';
+        replicaSet = serverStatus.repl.setName;
+        
+        // Get replica set status for detailed member information
+        try {
+          const replStatus = await admin.command({ replSetGetStatus: 1 });
+          
+          if (replStatus && replStatus.members) {
+            nodes = replStatus.members.map(member => ({
+              host: member.name,
+              role: member.stateStr === 'PRIMARY' ? 'primary' : 
+                    member.stateStr === 'SECONDARY' ? 'secondary' : 
+                    member.stateStr.toLowerCase(),
+              health: member.health === 1 ? 'healthy' : 'unhealthy',
+              state: member.stateStr,
+              uptime: member.uptime
+            }));
+          }
+        } catch (replError) {
+          // If replSetGetStatus command fails, it's not actually a replica set
+          if (replError.codeName === 'NoReplicationEnabled') {
+            logger.debug('MongoDB is standalone (no replication enabled)');
+            topology = 'standalone';
+            replicaSet = null;
+          } else {
+            logger.error('Error getting replica set status:', replError.message);
+          }
+        }
+      } 
+      // Check for sharded cluster
+      else if (serverStatus.process === 'mongos') {
+        topology = 'sharded';
+        
+        // Get shard information
+        try {
+          const shardsInfo = await mongoose.connection.db.admin().command({ listShards: 1 });
+          
+          if (shardsInfo && shardsInfo.shards) {
+            nodes = shardsInfo.shards.map(shard => ({
+              host: shard.host,
+              role: 'shard',
+              name: shard._id,
+              state: shard.state === 1 ? 'active' : 'inactive'
+            }));
+          }
+        } catch (shardError) {
+          logger.error('Error getting shard info:', shardError.message);
+        }
+      }
+
+      this.status.topology = topology;
+      this.status.replicaSet = replicaSet;
+      this.status.nodes = nodes;
+
+      logger.info(`📊 MongoDB topology: ${topology}${replicaSet ? ` (ReplicaSet: ${replicaSet})` : ''}`);
+
+    } catch (error) {
+      logger.error('Error detecting MongoDB topology:', error.message);
+      // Default to standalone on error
+      this.status.topology = 'standalone';
+      this.status.replicaSet = null;
+      this.status.nodes = [];
+    }
+  }
+
+  async handleReconnection() {
+    if (this.isReconnecting) return;
+    
+    this.isReconnecting = true;
+    this.currentRetry++;
+
+    logger.info(`🔄 Attempting MongoDB reconnection (${this.currentRetry}/${this.maxRetries})...`);
+
+    setTimeout(async () => {
+      try {
+        if (mongoose.connection.readyState === 0) {
+          await this.connect();
+        }
+        this.isReconnecting = false;
+      } catch (error) {
+        logger.error(`Reconnection attempt ${this.currentRetry} failed:`, error.message);
+        this.isReconnecting = false;
+        
+        if (this.currentRetry < this.maxRetries) {
+          this.handleReconnection();
+        } else {
+          logger.error('❌ Max reconnection attempts reached for MongoDB');
+          this.updateStatus({
+            message: 'Max reconnection attempts reached',
+            lastError: 'Failed to reconnect after maximum retries'
+          });
+        }
+      }
+    }, this.retryDelay * this.currentRetry);
+  }
+
+  async connect() {
+    const mongoURI = process.env.MONGO_URI || 'mongodb://mongodb:27017/devops-demo';
+    
+    const options = {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+      minPoolSize: 2,
+      maxIdleTimeMS: 30000,
+      retryWrites: true,
+      retryReads: true,
+      connectTimeoutMS: 10000,
+    };
+
+    try {
+      logger.info('🔌 Connecting to MongoDB...');
+      await mongoose.connect(mongoURI, options);
+    } catch (error) {
+      this.updateStatus({
+        connected: false,
+        message: error.message,
+        lastError: error.message
+      });
+      
+      logger.error('❌ MongoDB initial connection failed:', error.message);
+      
+      // Start reconnection attempts
+      if (this.currentRetry < this.maxRetries) {
+        this.handleReconnection();
+      }
+      
+      throw error;
+    }
+  }
+
+  getStatus() {
+    return {
+      ...this.status,
+      readyState: mongoose.connection.readyState,
+      readyStateLabel: this.getReadyStateLabel(mongoose.connection.readyState)
+    };
+  }
+
+  getReadyStateLabel(state) {
+    const states = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+    return states[state] || 'unknown';
+  }
+
+  async disconnect() {
+    try {
+      await mongoose.disconnect();
+      logger.info('MongoDB disconnected gracefully');
+    } catch (error) {
+      logger.error('Error disconnecting MongoDB:', error.message);
+    }
+  }
+}
+
+module.exports = new MongoDBConnection();
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\src\config\redis.js =====
+
+const redis = require('redis');
+const logger = require('../utils/logger');
+
+class RedisConnection {
+  constructor() {
+    this.client = null;
+    this.status = {
+      connected: false,
+      message: 'Not initialized',
+      lastChecked: null,
+      connectionAttempts: 0,
+      lastError: null,
+      mode: null,
+      role: null,
+      clusterNodes: []
+    };
+    
+    this.maxRetries = parseInt(process.env.REDIS_MAX_RETRIES) || 10;
+    this.retryDelay = parseInt(process.env.REDIS_RETRY_DELAY) || 5000;
+    this.currentRetry = 0;
+    this.isReconnecting = false;
+    this.isSentinel = false;
+  }
+
+  updateStatus(updates) {
+    this.status = {
+      ...this.status,
+      ...updates,
+      lastChecked: new Date().toISOString(),
+      connectionAttempts: this.status.connectionAttempts + 1
+    };
+  }
+
+  async getRedisInfo() {
+    if (!this.client || !this.client.isOpen) return;
+
+    try {
+      // Check if connected to Sentinel
+      if (this.isSentinel) {
+        const masters = await this.getSentinelMasters();
+        this.status.mode = 'sentinel';
+        this.status.role = 'sentinel';
+        this.status.clusterNodes = masters;
+        logger.info(`📊 Redis architecture: sentinel`);
+        return;
+      }
+
+      // Get Redis INFO
+      const info = await this.client.info();
+      const infoObj = this.parseRedisInfo(info);
+
+      let mode = 'standalone';
+      let role = infoObj.role || 'master';
+      let clusterNodes = [];
+
+      // Check if cluster mode
+      if (infoObj.cluster_enabled === '1') {
+        mode = 'cluster';
+        try {
+          const clusterInfo = await this.client.sendCommand(['CLUSTER', 'NODES']);
+          clusterNodes = this.parseClusterNodes(clusterInfo);
+        } catch (error) {
+          logger.error('Error getting cluster info:', error.message);
+        }
+      } 
+      else if (role === 'slave') {
+        mode = 'replication';
+        const masterHost = infoObj.master_host || 'unknown';
+        const masterPort = infoObj.master_port || 'unknown';
+        
+        clusterNodes = [
+          {
+            role: 'master',
+            address: `${masterHost}:${masterPort}`,
+            status: infoObj.master_link_status === 'up' ? 'connected' : 'disconnected'
+          },
+          {
+            role: 'slave',
+            info: 'current',
+            status: 'connected'
+          }
+        ];
+      }
+      else if (role === 'master') {
+        const connectedSlaves = parseInt(infoObj.connected_slaves) || 0;
+        
+        if (connectedSlaves > 0) {
+          mode = 'replication';
+          
+          try {
+            const replicationInfo = await this.client.info('replication');
+            const replObj = this.parseRedisInfo(replicationInfo);
+            
+            clusterNodes.push({
+              role: 'master',
+              info: 'current',
+              status: 'connected'
+            });
+            
+            for (let i = 0; i < connectedSlaves; i++) {
+              const slaveKey = `slave${i}`;
+              if (replObj[slaveKey]) {
+                const slaveInfo = this.parseSlaveInfo(replObj[slaveKey]);
+                clusterNodes.push({
+                  role: 'slave',
+                  address: `${slaveInfo.ip}:${slaveInfo.port}`,
+                  status: slaveInfo.state === 'online' ? 'connected' : 'disconnected',
+                  lag: slaveInfo.lag || 0
+                });
+              }
+            }
+          } catch (error) {
+            logger.error('Error getting replication details:', error.message);
+          }
+        } else {
+          mode = 'standalone';
+        }
+      }
+
+      this.status.mode = mode;
+      this.status.role = role;
+      this.status.clusterNodes = clusterNodes;
+
+      logger.info(`📊 Redis architecture: ${mode} (role: ${role})`);
+
+    } catch (error) {
+      logger.error('Error getting Redis info:', error.message);
+      this.status.mode = 'standalone';
+      this.status.role = 'master';
+      this.status.clusterNodes = [];
+    }
+  }
+
+  async checkIfSentinel() {
+    try {
+      // Try to execute a Sentinel-specific command
+      // Sentinel nodes respond to "SENTINEL masters"
+      const result = await this.client.sendCommand(['SENTINEL', 'masters']);
+      return true; // If this succeeds, it's a Sentinel
+    } catch (error) {
+      // If command fails, it's not a Sentinel
+      if (error.message.includes('unknown command') || 
+          error.message.includes('ERR unknown command')) {
+        return false;
+      }
+      // Other errors might still mean it's a sentinel with issues
+      logger.debug('Sentinel check error:', error.message);
+      return false;
+    }
+  }
+
+  async getSentinelMasters() {
+    try {
+      const mastersData = await this.client.sendCommand(['SENTINEL', 'masters']);
+      
+      const masters = [];
+      for (let i = 0; i < mastersData.length; i++) {
+        const masterInfo = mastersData[i];
+        const master = {};
+        
+        for (let j = 0; j < masterInfo.length; j += 2) {
+          master[masterInfo[j]] = masterInfo[j + 1];
+        }
+        
+        masters.push({
+          name: master.name,
+          role: 'monitored-master',
+          status: master.flags && master.flags.includes('down') ? 'down' : 'up',
+          address: `${master.ip}:${master.port}`,
+          sentinels: master['num-other-sentinels']
+        });
+      }
+      
+      return masters;
+    } catch (error) {
+      logger.error('Error getting sentinel masters:', error.message);
+      return [];
+    }
+  }
+
+  parseSlaveInfo(slaveStr) {
+    // Format: "ip=172.20.0.3,port=6379,state=online,offset=123,lag=0"
+    const parts = slaveStr.split(',');
+    const info = {};
+    
+    parts.forEach(part => {
+      const [key, value] = part.split('=');
+      if (key && value) {
+        info[key] = value;
+      }
+    });
+    
+    return info;
+  }
+
+  parseRedisInfo(info) {
+    const lines = info.split('\r\n');
+    const result = {};
+    
+    for (const line of lines) {
+      if (line && !line.startsWith('#')) {
+        const [key, value] = line.split(':');
+        if (key && value !== undefined) {
+          result[key] = value.trim();
+        }
+      }
+    }
+    
+    return result;
+  }
+
+  parseClusterNodes(nodesStr) {
+    const lines = nodesStr.split('\n').filter(line => line.trim());
+    return lines.map(line => {
+      const parts = line.split(' ');
+      return {
+        id: parts[0],
+        address: parts[1],
+        flags: parts[2],
+        role: parts[2].includes('master') ? 'master' : 'slave',
+        status: parts[7] === 'connected' ? 'connected' : 'disconnected'
+      };
+    });
+  }
+
+  setupEventListeners() {
+    if (!this.client) return;
+
+    this.client.on('connect', () => {
+      logger.info('⚡ Redis connecting...');
+    });
+
+    this.client.on('ready', async () => {
+      this.currentRetry = 0;
+      this.isReconnecting = false;
+      this.updateStatus({
+        connected: true,
+        message: 'Connected successfully',
+        lastError: null
+      });
+      
+      // Check if this is a Sentinel
+      this.isSentinel = await this.checkIfSentinel();
+      
+      await this.getRedisInfo();
+      logger.info('✅ Redis ready');
+    });
+
+    this.client.on('error', (err) => {
+      this.updateStatus({
+        connected: false,
+        message: 'Connection error',
+        lastError: err.message
+      });
+      logger.error('❌ Redis error:', err.message);
+    });
+
+    this.client.on('end', () => {
+      this.updateStatus({
+        connected: false,
+        message: 'Connection closed',
+        mode: null,
+        role: null,
+        clusterNodes: []
+      });
+      logger.warn('⚠️  Redis connection closed');
+    });
+
+    this.client.on('reconnecting', () => {
+      logger.info('🔄 Redis reconnecting...');
+      this.updateStatus({
+        message: 'Reconnecting...'
+      });
+    });
+  }
+
+  async connect() {
+    const redisURI = process.env.REDIS_URI;
+    
+    if (!redisURI) {
+      this.updateStatus({
+        connected: false,
+        message: 'Redis not configured (optional)',
+        lastError: null
+      });
+      logger.info('ℹ️  Redis URI not provided, skipping connection');
+      return;
+    }
+
+    const options = {
+      url: redisURI,
+      socket: {
+        connectTimeout: 10000,
+        reconnectStrategy: (retries) => {
+          if (retries > this.maxRetries) {
+            logger.error('❌ Max Redis reconnection attempts reached');
+            this.updateStatus({
+              message: 'Max reconnection attempts reached',
+              lastError: 'Failed to reconnect after maximum retries'
+            });
+            return new Error('Max retries reached');
+          }
+          
+          const delay = Math.min(retries * this.retryDelay, 30000);
+          logger.info(`🔄 Redis reconnect attempt ${retries} in ${delay}ms`);
+          return delay;
+        }
+      },
+      enableReadyCheck: true,
+      maxRetriesPerRequest: 3
+    };
+
+    try {
+      logger.info('🔌 Connecting to Redis...');
+      this.client = redis.createClient(options);
+      this.setupEventListeners();
+      await this.client.connect();
+    } catch (error) {
+      this.updateStatus({
+        connected: false,
+        message: error.message,
+        lastError: error.message
+      });
+      logger.error('❌ Redis connection failed:', error.message);
+      throw error;
+    }
+  }
+
+  getStatus() {
+    return this.status;
+  }
+
+  async disconnect() {
+    if (this.client) {
+      try {
+        await this.client.quit();
+        logger.info('Redis disconnected gracefully');
+      } catch (error) {
+        logger.error('Error disconnecting Redis:', error.message);
+        try {
+          await this.client.disconnect();
+        } catch (e) {
+          logger.error('Error force disconnecting Redis:', e.message);
+        }
+      }
+    }
+  }
+
+  async ping() {
+    if (!this.client || !this.client.isOpen) {
+      return false;
+    }
+    
+    try {
+      const result = await this.client.ping();
+      return result === 'PONG';
+    } catch (error) {
+      logger.error('Redis ping failed:', error.message);
+      return false;
+    }
+  }
+}
+
+module.exports = new RedisConnection();
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\src\routes\architecture.js =====
+
+const express = require('express');
+const mongoConnection = require('../config/mongodb');
+const redisConnection = require('../config/redis');
+const logger = require('../utils/logger');
+
+const router = express.Router();
+
+// Function to get MongoDB status
+function getMongoStatus() {
+  const mongoStatus = mongoConnection.getStatus();
+  return mongoStatus.connected ? 'running' : 'configured';
+}
+
+// Function to get Redis status
+function getRedisStatus() {
+  if (!process.env.REDIS_URI) {
+    return 'optional';
+  }
+  
+  const redisStatus = redisConnection.getStatus();
+  return redisStatus.connected ? 'running' : 'configured';
+}
+
+// Get architecture information
+router.get('/', (req, res) => {
+  try {
+    const architecture = {
+      name: 'MERN DevOps Demo',
+      version: '2.0.0',
+      type: 'microservices',
+      components: [
+        {
+          id: 'frontend',
+          name: 'React Frontend',
+          type: 'web',
+          technology: 'React + Vite + TailwindCSS',
+          port: 3000,
+          description: 'Real-time monitoring dashboard',
+          status: 'running',
+          connections: ['backend']
+        },
+        {
+          id: 'backend',
+          name: 'Express API',
+          type: 'api',
+          technology: 'Node.js + Express',
+          port: 5000,
+          description: 'RESTful API with health monitoring',
+          status: 'running',
+          connections: ['mongodb', 'redis'],
+          endpoints: [
+            { path: '/api/', method: 'GET', description: 'Basic status' },
+            { path: '/api/health', method: 'GET', description: 'Health check' },
+            { path: '/api/status', method: 'GET', description: 'Detailed status' },
+            { path: '/api/architecture', method: 'GET', description: 'Architecture info' }
+          ]
+        },
+        {
+          id: 'mongodb',
+          name: 'MongoDB',
+          type: 'database',
+          technology: 'MongoDB 7.0',
+          port: 27017,
+          description: 'NoSQL document database',
+          status: getMongoStatus(),
+          connections: []
+        },
+        {
+          id: 'redis',
+          name: 'Redis',
+          type: 'cache',
+          technology: 'Redis 7',
+          port: 6379,
+          description: 'In-memory cache and message broker',
+          status: getRedisStatus(),
+          connections: []
+        }
+      ],
+      dataFlow: [
+        {
+          from: 'frontend',
+          to: 'backend',
+          protocol: 'HTTP/REST',
+          description: 'API requests for status and health'
+        },
+        {
+          from: 'backend',
+          to: 'mongodb',
+          protocol: 'MongoDB Wire Protocol',
+          description: 'Database queries and operations'
+        },
+        {
+          from: 'backend',
+          to: 'redis',
+          protocol: 'RESP',
+          description: 'Cache operations and pub/sub'
+        }
+      ],
+      deployment: {
+        platform: process.env.DEPLOYMENT_PLATFORM || 'Docker Compose',
+        environment: process.env.NODE_ENV || 'development',
+        containerization: 'Docker',
+        orchestration: process.env.ORCHESTRATION || 'Docker Compose',
+        networking: 'Bridge Network (devops-network)',
+        volumes: ['mongodb_data', 'redis_data']
+      },
+      scaling: {
+        frontend: {
+          type: 'horizontal',
+          instances: parseInt(process.env.FRONTEND_REPLICAS) || 1,
+          loadBalancer: process.env.LOAD_BALANCER || 'none'
+        },
+        backend: {
+          type: 'horizontal',
+          instances: parseInt(process.env.BACKEND_REPLICAS) || 1,
+          loadBalancer: process.env.LOAD_BALANCER || 'none'
+        }
+      }
+    };
+
+    logger.info('Architecture information requested');
+    res.json(architecture);
+  } catch (error) {
+    logger.error('Error getting architecture:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve architecture',
+      message: error.message
+    });
+  }
+});
+
+module.exports = router;
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\src\routes\status.js =====
+
+const express = require('express');
+const mongoConnection = require('../config/mongodb');
+const redisConnection = require('../config/redis');
+const logger = require('../utils/logger');
+
+const router = express.Router();
+
+// Track application start time
+const startTime = Date.now();
+
+// Calculate uptime
+const getUptime = () => {
+  const uptimeMs = Date.now() - startTime;
+  const seconds = Math.floor(uptimeMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  return {
+    milliseconds: uptimeMs,
+    seconds: seconds,
+    minutes: minutes,
+    hours: hours,
+    days: days,
+    formatted: `${days}d ${hours % 24}h ${minutes % 60}m ${seconds % 60}s`
+  };
+};
+
+// Root endpoint
+router.get('/', (req, res) => {
+  res.json({
+    status: 'Backend running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    version: '2.0.0'
+  });
+});
+
+// Health check endpoint
+router.get('/health', async (req, res) => {
+  const mongoStatus = mongoConnection.getStatus();
+  const redisStatus = redisConnection.getStatus();
+  
+  const isHealthy = mongoStatus.connected && 
+                    (redisStatus.connected || !process.env.REDIS_URI);
+
+  res.status(isHealthy ? 200 : 503).json({
+    status: isHealthy ? 'healthy' : 'degraded',
+    timestamp: new Date().toISOString(),
+    checks: {
+      mongodb: mongoStatus.connected ? 'pass' : 'fail',
+      redis: !process.env.REDIS_URI ? 'skipped' : (redisStatus.connected ? 'pass' : 'fail')
+    }
+  });
+});
+
+// Detailed status endpoint
+router.get('/status', async (req, res) => {
+  try {
+    const mongoStatus = mongoConnection.getStatus();
+    const redisStatus = redisConnection.getStatus();
+    const uptime = getUptime();
+
+    // Test Redis ping if connected
+    let redisPing = null;
+    if (redisStatus.connected) {
+      try {
+        const pingStart = Date.now();
+        const pingResult = await redisConnection.ping();
+        redisPing = {
+          success: pingResult,
+          latency: Date.now() - pingStart
+        };
+      } catch (error) {
+        redisPing = {
+          success: false,
+          error: error.message
+        };
+      }
+    }
+
+    const statusReport = {
+      application: {
+        name: 'MERN DevOps Demo',
+        version: '2.0.0',
+        environment: process.env.NODE_ENV || 'development',
+        status: 'running',
+        pid: process.pid,
+        platform: process.platform,
+        nodeVersion: process.version
+      },
+      uptime: uptime,
+      services: {
+        backend: {
+          connected: true,
+          message: 'Running',
+          status: 'healthy',
+          lastChecked: new Date().toISOString(),
+          port: process.env.PORT || 5000,
+          uptime: uptime.formatted
+        },
+        mongodb: {
+          connected: mongoStatus.connected,
+          message: mongoStatus.message,
+          lastChecked: mongoStatus.lastChecked,
+          connectionAttempts: mongoStatus.connectionAttempts,
+          lastError: mongoStatus.lastError,
+          readyState: mongoStatus.readyState,
+          readyStateLabel: mongoStatus.readyStateLabel,
+          architecture: {
+            topology: mongoStatus.topology,
+            replicaSet: mongoStatus.replicaSet,
+            nodes: mongoStatus.nodes
+          },
+          uri: process.env.MONGO_URI ? '***configured***' : 'not configured'
+        },
+        redis: {
+          connected: redisStatus.connected,
+          message: redisStatus.message,
+          lastChecked: redisStatus.lastChecked,
+          connectionAttempts: redisStatus.connectionAttempts,
+          lastError: redisStatus.lastError,
+          ping: redisPing,
+          architecture: {
+            mode: redisStatus.mode,
+            role: redisStatus.role,
+            clusterNodes: redisStatus.clusterNodes
+          },
+          uri: process.env.REDIS_URI ? '***configured***' : 'not configured'
+        }
+      },
+      memory: {
+        rss: `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB`,
+        heapTotal: `${(process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2)} MB`,
+        heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
+        external: `${(process.memoryUsage().external / 1024 / 1024).toFixed(2)} MB`
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    logger.info('Status check requested');
+    res.json(statusReport);
+  } catch (error) {
+    logger.error('Error in status endpoint:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve status',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+module.exports = router;
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\backend\src\utils\logger.js =====
+
+const winston = require('winston');
+
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    })
+  ]
+});
+
+module.exports = logger;
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\Dockerfile =====
+
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build argument for API URL
+ARG VITE_API_URL=http://localhost:5000/api
+ENV VITE_API_URL=$VITE_API_URL
+
+# Build application
+RUN npm run build
+
+# Production stage with nginx
+FROM nginx:alpine
+
+# Copy custom nginx config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy built assets from builder
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Add non-root user
+RUN chown -R nginx:nginx /usr/share/nginx/html && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /var/log/nginx && \
+    chmod -R 755 /usr/share/nginx/html
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\index.html =====
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MERN DevOps Demo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\package.json =====
+
+{
+  "name": "mern-devops-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.0.8",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0"
+  }
+}
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\postcss.config.js =====
+
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\tailwind.config.js =====
+
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\vite.config.js =====
+
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    host: '0.0.0.0',
+    port: 3000,
+    strictPort: true,
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 3000,
+  },
+});
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\src\App.jsx =====
+
+import Dashboard from './components/Dashboard';
+
+function App() {
+  return <Dashboard />;
+}
+
+export default App;
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\src\index.css =====
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\src\main.jsx =====
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App.jsx';
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\src\components\ArchitectureDiagram.jsx =====
+
+import { useEffect, useRef } from 'react';
+
+const ArchitectureDiagram = ({ architecture, status }) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    if (!architecture || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    // Set canvas size
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+    canvas.width = width;
+    canvas.height = height;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+
+    // Define component positions
+    const components = {
+      frontend: { x: width * 0.5, y: height * 0.15, width: 120, height: 80 },
+      backend: { x: width * 0.5, y: height * 0.5, width: 120, height: 80 },
+      mongodb: { x: width * 0.25, y: height * 0.85, width: 120, height: 80 },
+      redis: { x: width * 0.75, y: height * 0.85, width: 120, height: 80 }
+    };
+
+    // Get component status
+    const getComponentColor = (id) => {
+      if (id === 'frontend') return '#10B981'; // Green
+      if (id === 'backend') return status ? '#10B981' : '#EF4444'; // Green/Red
+      if (id === 'mongodb') return status?.services?.mongodb?.connected ? '#10B981' : '#EF4444';
+      if (id === 'redis') {
+        if (!status?.services?.redis?.uri?.includes('configured')) return '#9CA3AF'; // Gray
+        return status?.services?.redis?.connected ? '#10B981' : '#EF4444';
+      }
+      return '#6B7280';
+    };
+
+    // Draw connections
+    const drawConnection = (from, to, active = true) => {
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y + from.height / 2);
+      ctx.lineTo(to.x, to.y - to.height / 2);
+      ctx.strokeStyle = active ? '#3B82F6' : '#D1D5DB';
+      ctx.lineWidth = 3;
+      ctx.setLineDash(active ? [] : [5, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw arrow
+      const angle = Math.atan2(to.y - from.y, to.x - from.x);
+      const arrowSize = 10;
+      ctx.beginPath();
+      ctx.moveTo(to.x, to.y - to.height / 2);
+      ctx.lineTo(
+        to.x - arrowSize * Math.cos(angle - Math.PI / 6),
+        to.y - to.height / 2 - arrowSize * Math.sin(angle - Math.PI / 6)
+      );
+      ctx.moveTo(to.x, to.y - to.height / 2);
+      ctx.lineTo(
+        to.x - arrowSize * Math.cos(angle + Math.PI / 6),
+        to.y - to.height / 2 - arrowSize * Math.sin(angle + Math.PI / 6)
+      );
+      ctx.strokeStyle = active ? '#3B82F6' : '#D1D5DB';
+      ctx.stroke();
+    };
+
+    // Draw connections
+    drawConnection(components.frontend, components.backend, status !== null);
+    drawConnection(components.backend, components.mongodb, status?.services?.mongodb?.connected);
+    drawConnection(
+      components.backend, 
+      components.redis, 
+      status?.services?.redis?.connected
+    );
+
+    // Draw components
+    Object.entries(components).forEach(([id, comp]) => {
+      const color = getComponentColor(id);
+      
+      // Draw box with shadow
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 2;
+      
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      
+      const radius = 8;
+      const x = comp.x - comp.width / 2;
+      const y = comp.y - comp.height / 2;
+      
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + comp.width - radius, y);
+      ctx.quadraticCurveTo(x + comp.width, y, x + comp.width, y + radius);
+      ctx.lineTo(x + comp.width, y + comp.height - radius);
+      ctx.quadraticCurveTo(x + comp.width, y + comp.height, x + comp.width - radius, y + comp.height);
+      ctx.lineTo(x + radius, y + comp.height);
+      ctx.quadraticCurveTo(x, y + comp.height, x, y + comp.height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      
+      ctx.shadowColor = 'transparent';
+
+      // Draw icon/emoji
+      ctx.font = '32px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const icons = {
+        frontend: '🖥️',
+        backend: '⚙️',
+        mongodb: '🍃',
+        redis: '📦'
+      };
+      ctx.fillText(icons[id], comp.x, comp.y - 10);
+
+      // Draw label
+      ctx.font = 'bold 14px Arial';
+      ctx.fillStyle = '#1F2937';
+      const labels = {
+        frontend: 'Frontend',
+        backend: 'Backend',
+        mongodb: 'MongoDB',
+        redis: 'Redis'
+      };
+      ctx.fillText(labels[id], comp.x, comp.y + 20);
+
+      // Draw status indicator
+      ctx.beginPath();
+      ctx.arc(comp.x + comp.width / 2 - 15, comp.y - comp.height / 2 + 15, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+    });
+
+  }, [architecture, status]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="w-full h-96 border border-gray-200 rounded-lg bg-gray-50"
+    />
+  );
+};
+
+export default ArchitectureDiagram;
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\src\components\Dashboard.jsx =====
+
+import { useState, useEffect } from 'react';
+import { fetchDetailedStatus, fetchArchitecture } from '../services/api';
+import ArchitectureDiagram from './ArchitectureDiagram';
+
+const Dashboard = () => {
+  const [status, setStatus] = useState(null);
+  const [architecture, setArchitecture] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(10000);
+  const [connectionHistory, setConnectionHistory] = useState([]);
+  const [activeTab, setActiveTab] = useState('overview');
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    
+    const [statusResult, archResult] = await Promise.all([
+      fetchDetailedStatus(),
+      fetchArchitecture()
+    ]);
+    
+    if (statusResult.success) {
+      setStatus(statusResult.data);
+      setLastUpdate(new Date());
+      setError(null);
+      
+      // Track connection history
+      setConnectionHistory(prev => {
+        const newEntry = {
+          timestamp: new Date().toISOString(),
+          backend: true,
+          mongodb: statusResult.data.services?.mongodb?.connected || false,
+          redis: statusResult.data.services?.redis?.connected || false
+        };
+        return [...prev.slice(-20), newEntry]; // Keep last 20 entries
+      });
+    } else {
+      setError(statusResult.error);
+      setStatus(null);
+      
+      // Track disconnection
+      setConnectionHistory(prev => {
+        const newEntry = {
+          timestamp: new Date().toISOString(),
+          backend: false,
+          mongodb: false,
+          redis: false,
+          error: true
+        };
+        return [...prev.slice(-20), newEntry];
+      });
+    }
+
+    if (archResult.success) {
+      setArchitecture(archResult.data);
+    }
+    
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    
+    const interval = setInterval(fetchData, refreshInterval);
+    return () => clearInterval(interval);
+  }, [autoRefresh, refreshInterval]);
+
+  const StatusBadge = ({ connected, label }) => (
+    <div className="flex items-center space-x-2">
+      <div className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+      <span className={`font-semibold ${connected ? 'text-green-700' : 'text-red-700'}`}>
+        {connected ? 'Connected' : 'Disconnected'}
+      </span>
+    </div>
+  );
+
+  const TopologyBadge = ({ topology }) => {
+    if (!topology) return null;
+    
+    const colors = {
+      standalone: 'bg-blue-100 text-blue-800',
+      replicaSet: 'bg-purple-100 text-purple-800',
+      sharded: 'bg-orange-100 text-orange-800',
+      cluster: 'bg-indigo-100 text-indigo-800',
+      replication: 'bg-pink-100 text-pink-800'
+    };
+
+    return (
+      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${colors[topology] || 'bg-gray-100 text-gray-800'}`}>
+        {topology.toUpperCase()}
+      </span>
+    );
+  };
+
+  const ServiceCard = ({ title, service, icon }) => (
+    <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+          <span className="text-2xl mr-2">{icon}</span>
+          {title}
+        </h3>
+        <StatusBadge connected={service?.connected} />
+      </div>
+      
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-gray-600">Status:</span>
+          <span className="text-gray-900 font-medium">{service?.message || 'N/A'}</span>
+        </div>
+        
+        {service?.connectionAttempts !== undefined && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Attempts:</span>
+            <span className="text-gray-900">{service.connectionAttempts || 0}</span>
+          </div>
+        )}
+
+        {service?.port && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Port:</span>
+            <span className="text-gray-900">{service.port}</span>
+          </div>
+        )}
+
+        {service?.lastError && (
+          <div className="text-sm text-red-600">
+            Error: {service.lastError}
+          </div>
+        )}
+
+        {service?.readyState !== undefined && (
+          <div className="flex justify-between">
+            <span className="text-gray-600">Ready State:</span>
+            <span className="text-gray-900">{service.readyStateLabel || service.readyState || 'N/A'}</span>
+          </div>
+        )}
+
+        {service?.architecture && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-gray-600">Architecture:</span>
+              <span><TopologyBadge topology={service.architecture.topology || service.architecture.mode} /></span>
+            </div>
+            
+            {service.architecture.replicaSet && (
+              <div className="text-sm">
+                Replica Set: <span className="font-medium">{service.architecture.replicaSet}</span>
+              </div>
+            )}
+
+            {service.architecture.role && (
+              <div className="text-sm">
+                Role: <span className="font-medium">{service.architecture.role}</span>
+              </div>
+            )}
+
+            {service.architecture.nodes && service.architecture.nodes.length > 0 && (
+              <div className="mt-2">
+                <span className="text-gray-600 text-sm">Nodes:</span>
+                <div className="mt-1 space-y-1">
+                  {service.architecture.nodes.map((node, idx) => (
+                    <div key={idx} className="flex justify-between text-xs">
+                      <span className="text-gray-700">
+                        {node.host || node.address}
+                      </span>
+                      <span className="font-medium">
+                        {node.role}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {service.architecture.clusterNodes && service.architecture.clusterNodes.length > 0 && (
+              <div className="mt-2">
+                <span className="text-gray-600 text-sm">Cluster Nodes:</span>
+                <div className="mt-1 space-y-1">
+                  {service.architecture.clusterNodes.map((node, idx) => (
+                    <div key={idx} className="flex justify-between text-xs">
+                      <span className="text-gray-700">
+                        {node.address}
+                      </span>
+                      <span className="font-medium">
+                        {node.role}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {service?.ping && (
+          <div className="mt-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Ping:</span>
+              <span className={`font-medium ${service.ping.success ? 'text-green-600' : 'text-red-600'}`}>
+                {service.ping.success ? `${service.ping.latency}ms` : 'Failed'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-between">
+          <span className="text-gray-600">Last Checked:</span>
+          <span className="text-gray-900">
+            {service?.lastChecked ? new Date(service.lastChecked).toLocaleTimeString() : 'N/A'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const ConnectionHistoryChart = () => {
+    if (connectionHistory.length === 0) {
+      return (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+            <span className="text-2xl mr-2">📊</span>
+            Connection History
+          </h3>
+          <div className="text-center py-8">
+            <p className="text-gray-600">No connection history data yet.</p>
+            <p className="text-sm text-gray-500">Data will appear after the first status check.</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+          <span className="text-2xl mr-2">📊</span>
+          Connection History (Last {connectionHistory.length} checks)
+        </h3>
+        
+        <div className="flex items-end justify-between h-32 mb-4 border-b border-l border-gray-200 pb-2 pl-2 relative">
+          <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 -ml-6">
+            <span>100%</span>
+            <span>50%</span>
+            <span>0%</span>
+          </div>
+          <div className="flex items-end space-x-1 h-32 flex-grow">
+            {connectionHistory.map((entry, idx) => {
+              const backendHeight = entry.backend ? 'h-full' : 'h-2';
+              const mongoHeight = entry.mongodb ? 'h-full' : 'h-2';
+              const redisHeight = entry.redis ? 'h-full' : 'h-2';
+              
+              return (
+                <div key={idx} className="flex items-end space-x-0.5 w-4">
+                  <div
+                    className={`w-2 ${entry.backend ? 'bg-blue-500' : 'bg-gray-300'} rounded-t hover:opacity-75 transition-opacity ${
+                      backendHeight.includes('full') ? 'h-full' : 'h-2'
+                    }`}
+                    style={{ height: entry.backend ? '100%' : '10%' }}
+                    title={`Backend: ${entry.backend ? 'Connected' : 'Disconnected'} at ${new Date(entry.timestamp).toLocaleTimeString()}`}
+                  />
+                  <div
+                    className={`w-2 ${entry.mongodb ? 'bg-green-500' : 'bg-gray-300'} rounded-t hover:opacity-75 transition-opacity ${
+                      mongoHeight.includes('full') ? 'h-full' : 'h-2'
+                    }`}
+                    style={{ height: entry.mongodb ? '100%' : '10%' }}
+                    title={`MongoDB: ${entry.mongodb ? 'Connected' : 'Disconnected'} at ${new Date(entry.timestamp).toLocaleTimeString()}`}
+                  />
+                  <div
+                    className={`w-2 ${entry.redis ? 'bg-red-500' : 'bg-gray-300'} rounded-t hover:opacity-75 transition-opacity ${
+                      redisHeight.includes('full') ? 'h-full' : 'h-2'
+                    }`}
+                    style={{ height: entry.redis ? '100%' : '10%' }}
+                    title={`Redis: ${entry.redis ? 'Connected' : 'Disconnected'} at ${new Date(entry.timestamp).toLocaleTimeString()}`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        
+        <div className="flex justify-between text-xs text-gray-600 mb-4">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-blue-500 mr-1"></div>
+              <span>Backend</span>
+            </div>
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-green-500 mr-1"></div>
+              <span>MongoDB</span>
+            </div>
+            <div className="flex items-center">
+              <div className="w-3 h-3 bg-red-500 mr-1"></div>
+              <span>Redis</span>
+            </div>
+          </div>
+          <span>{connectionHistory.length} samples</span>
+        </div>
+
+        {/* Statistics */}
+        <div className="grid grid-cols-3 gap-4 mt-4">
+          <div className="bg-blue-50 rounded-lg p-3 text-center">
+            <p className="text-sm text-gray-600">Backend Uptime</p>
+            <p className="text-lg font-bold text-blue-600">
+              {((connectionHistory.filter(e => e.backend).length / connectionHistory.length) * 100).toFixed(1)}%
+            </p>
+          </div>
+          <div className="bg-green-50 rounded-lg p-3 text-center">
+            <p className="text-sm text-gray-600">MongoDB Uptime</p>
+            <p className="text-lg font-bold text-green-600">
+              {((connectionHistory.filter(e => e.mongodb).length / connectionHistory.length) * 100).toFixed(1)}%
+            </p>
+          </div>
+          <div className="bg-red-50 rounded-lg p-3 text-center">
+            <p className="text-sm text-gray-600">Redis Uptime</p>
+            <p className="text-lg font-bold text-red-600">
+              {((connectionHistory.filter(e => e.redis).length / connectionHistory.length) * 100).toFixed(1)}%
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (loading && !status) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600 font-medium">Loading status...</p>
+          <p className="text-sm text-gray-500">Initializing connections with retry logic...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !status) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-50 to-pink-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+          <div className="text-center">
+            <span className="text-6xl">⚠️</span>
+            <h2 className="mt-4 text-2xl font-bold text-red-600">Backend Unreachable</h2>
+            <p className="mt-2 text-gray-600">{error}</p>
+            <div className="mt-4 text-left text-sm text-gray-600 bg-gray-50 p-3 rounded">
+              <p>Connection attempts made with:</p>
+              <ul className="list-disc pl-5 mt-1">
+                <li>Exponential backoff retry (3 attempts)</li>
+                <li>10-second timeout per request</li>
+                <li>Network error handling</li>
+              </ul>
+            </div>
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="mt-6 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 mx-auto"
+            >
+              {loading ? 'Retrying...' : 'Retry Connection'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800 flex items-center">
+                <span className="text-4xl mr-3">🚀</span>
+                MERN DevOps Demo
+              </h1>
+              <p className="text-gray-600 mt-1">Infrastructure Connectivity Monitor v2.0</p>
+            </div>
+            
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={autoRefresh}
+                  onChange={(e) => setAutoRefresh(e.target.checked)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label className="text-sm text-gray-700">
+                  Auto-refresh
+                </label>
+                <select
+                  value={refreshInterval}
+                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                  className="ml-2 text-sm border-gray-300 rounded"
+                  disabled={!autoRefresh}
+                >
+                  <option value={5000}>5s</option>
+                  <option value={10000}>10s</option>
+                  <option value={30000}>30s</option>
+                  <option value={60000}>60s</option>
+                </select>
+              </div>
+              
+              <button
+                onClick={fetchData}
+                disabled={loading}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                <span>{loading ? '🔄' : '🔃'}</span>
+                <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+              </button>
+            </div>
+          </div>
+          
+          {lastUpdate && (
+            <div className="mt-4 flex justify-between text-sm text-gray-500">
+              <span>
+                Last updated: {lastUpdate.toLocaleString()}
+              </span>
+              <span>
+                Next refresh in: {autoRefresh ? `${refreshInterval / 1000}s` : 'Manual'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div className="bg-white rounded-lg shadow-md mb-6">
+          <div className="flex border-b border-gray-200">
+            {['overview', 'architecture', 'monitoring'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+                  activeTab === tab
+                    ? 'border-b-2 border-blue-600 text-blue-600'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Overview Tab */}
+        {activeTab === 'overview' && (
+          <>
+            {/* Application Info */}
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                <span className="text-2xl mr-2">📊</span>
+                Application Information
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-4">
+                  <p className="text-sm text-gray-600">Application</p>
+                  <p className="text-lg font-semibold text-gray-900">{status?.application?.name}</p>
+                </div>
+                <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-lg p-4">
+                  <p className="text-sm text-gray-600">Version</p>
+                  <p className="text-lg font-semibold text-gray-900">{status?.application?.version}</p>
+                </div>
+                <div className="bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg p-4">
+                  <p className="text-sm text-gray-600">Environment</p>
+                  <p className="text-lg font-semibold text-gray-900 uppercase">{status?.application?.environment}</p>
+                </div>
+                <div className="bg-gradient-to-r from-indigo-50 to-indigo-100 rounded-lg p-4">
+                  <p className="text-sm text-gray-600">Node Version</p>
+                  <p className="text-lg font-semibold text-gray-900">{status?.application?.nodeVersion}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Uptime */}
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                <span className="text-2xl mr-2">⏱️</span>
+                System Uptime & Memory
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-gradient-to-r from-indigo-50 to-purple-100 rounded-lg p-6 text-center">
+                  <p>Application Uptime</p>
+                  <p className="text-3xl font-bold text-indigo-600">
+                    {status?.uptime?.formatted}
+                  </p>
+                  <p className="text-gray-600 mt-2">
+                    {status?.uptime?.seconds?.toLocaleString()} seconds
+                  </p>
+                </div>
+                <div className="bg-gradient-to-r from-cyan-50 to-blue-100 rounded-lg p-6">
+                  <p className="font-semibold text-gray-800 mb-3">Memory Usage</p>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Heap Used:</span>
+                      <span className="text-gray-900">{status?.memory?.heapUsed}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Heap Total:</span>
+                      <span className="text-gray-900">{status?.memory?.heapTotal}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">RSS:</span>
+                      <span className="text-gray-900">{status?.memory?.rss}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Services Status */}
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                <span className="text-2xl mr-2">🔌</span>
+                Services Status
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <ServiceCard
+                  title="Backend"
+                  service={status?.services?.backend}
+                  icon="⚙️"
+                />
+                <ServiceCard
+                  title="MongoDB"
+                  service={status?.services?.mongodb}
+                  icon="🍃"
+                />
+                <ServiceCard
+                  title="Redis"
+                  service={status?.services?.redis}
+                  icon="📦"
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Architecture Tab */}
+        {activeTab === 'architecture' && (
+          <>
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                <span className="text-2xl mr-2">🏗️</span>
+                System Architecture
+              </h2>
+              <ArchitectureDiagram architecture={architecture} status={status} />
+            </div>
+
+            {architecture && (
+              <>
+                {/* Components */}
+                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Components</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {architecture.components.map((component) => (
+                      <div key={component.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="font-semibold text-gray-800">{component.name}</h4>
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            component.status === 'running' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {component.status}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-3">{component.description}</p>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Technology:</span>
+                            <span className="text-gray-800">{component.technology}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Port:</span>
+                            <span className="text-gray-800">{component.port}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Type:</span>
+                            <span className="text-gray-800">{component.type}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Deployment Info */}
+                <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Deployment Configuration</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <p className="text-sm text-gray-600">Platform</p>
+                      <p className="text-lg font-semibold text-gray-900">{architecture.deployment.platform}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <p className="text-sm text-gray-600">Orchestration</p>
+                      <p className="text-lg font-semibold text-gray-900">{architecture.deployment.orchestration}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <p className="text-sm text-gray-600">Environment</p>
+                      <p className="text-lg font-semibold text-gray-900">{architecture.deployment.environment}</p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* Monitoring Tab */}
+        {activeTab === 'monitoring' && (
+          <>
+            <ConnectionHistoryChart />
+            
+            <div className="bg-white rounded-lg shadow-md p-6 mt-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                <span className="text-2xl mr-2">🔍</span>
+                Connection Details
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Backend Details */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <span className="mr-2">⚙️</span>
+                    Backend Connection
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Status:</span>
+                      <span className="text-gray-900">{status?.services?.backend?.message || 'Running'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Port:</span>
+                      <span className="text-gray-900">{status?.services?.backend?.port || 5000}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Uptime:</span>
+                      <span className="text-gray-900">{status?.services?.backend?.uptime || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* MongoDB Details */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <span className="mr-2">🍃</span>
+                    MongoDB Connection
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Ready State:</span>
+                      <span className="text-gray-900">{status?.services?.mongodb?.readyStateLabel || 'Unknown'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Attempts:</span>
+                      <span className="text-gray-900">{status?.services?.mongodb?.connectionAttempts || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Topology:</span>
+                      <span className="text-gray-900">{status?.services?.mongodb?.architecture?.topology || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Redis Details */}
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <span className="mr-2">📦</span>
+                    Redis Connection
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Status:</span>
+                      <span className="text-gray-900">{status?.services?.redis?.message || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Attempts:</span>
+                      <span className="text-gray-900">{status?.services?.redis?.connectionAttempts || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Mode:</span>
+                      <span className="text-gray-900">{status?.services?.redis?.architecture?.mode || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Footer */}
+        <div className="bg-white rounded-lg shadow-md p-4 text-center text-sm text-gray-600">
+          <p className="mb-1">
+            🛠️ Purpose: DevOps Infrastructure Testing & Connectivity Monitoring with Production-Grade Retry Logic
+          </p>
+          <p className="mb-1">
+            ⚡ Features: Exponential Backoff • Graceful Reconnection • Architecture Detection • Real-time Monitoring
+          </p>
+          <p>
+            Timestamp: {status?.timestamp ? new Date(status.timestamp).toLocaleString() : 'N/A'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
+
+
+
+
+===== FILE: D:\good projects\mern-stack-template\frontend\src\services\api.js =====
+
+import axios from 'axios';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+// Create axios instance with retry logic
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Retry configuration
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
+
+// Sleep helper
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Retry logic
+const axiosRetry = async (config, retryCount = 0) => {
+  try {
+    return await apiClient.request(config);
+  } catch (error) {
+    if (retryCount >= MAX_RETRIES) {
+      throw error;
+    }
+
+    const shouldRetry = 
+      !error.response || // Network error
+      error.response.status >= 500 || // Server error
+      error.code === 'ECONNABORTED' || // Timeout
+      error.code === 'ENOTFOUND' || // DNS error
+      error.code === 'ECONNREFUSED'; // Connection refused
+
+    if (shouldRetry) {
+      const delay = RETRY_DELAY * Math.pow(2, retryCount); // Exponential backoff
+      console.log(`Retrying request (${retryCount + 1}/${MAX_RETRIES}) after ${delay}ms...`);
+      await sleep(delay);
+      return axiosRetry(config, retryCount + 1);
+    }
+
+    throw error;
+  }
+};
+
+// Request interceptor
+apiClient.interceptors.request.use(
+  (config) => {
+    console.log(`🔵 API Request: ${config.method.toUpperCase()} ${config.url}`);
+    config.metadata = { startTime: Date.now() };
+    return config;
+  },
+  (error) => {
+    console.error('❌ API Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor
+apiClient.interceptors.response.use(
+  (response) => {
+    const duration = Date.now() - response.config.metadata.startTime;
+    console.log(`✅ API Response: ${response.status} ${response.config.url} (${duration}ms)`);
+    return response;
+  },
+  (error) => {
+    const duration = error.config?.metadata?.startTime 
+      ? Date.now() - error.config.metadata.startTime 
+      : 0;
+    
+    console.error(`❌ API Response Error: ${error.message} (${duration}ms)`);
+    return Promise.reject(error);
+  }
+);
+
+// API methods with retry logic
+export const fetchBackendStatus = async () => {
+  try {
+    const response = await axiosRetry({ method: 'GET', url: '/' });
+    return { success: true, data: response.data };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      details: error.response?.data || null,
+      code: error.code,
+      statusCode: error.response?.status
+    };
+  }
+};
+
+export const fetchDetailedStatus = async () => {
+  try {
+    const response = await axiosRetry({ method: 'GET', url: '/status' });
+    return { success: true, data: response.data };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      details: error.response?.data || null,
+      code: error.code,
+      statusCode: error.response?.status
+    };
+  }
+};
+
+export const fetchHealthCheck = async () => {
+  try {
+    const response = await axiosRetry({ method: 'GET', url: '/health' });
+    return { success: true, data: response.data };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      details: error.response?.data || null,
+      code: error.code,
+      statusCode: error.response?.status
+    };
+  }
+};
+
+export const fetchArchitecture = async () => {
+  try {
+    const response = await axiosRetry({ method: 'GET', url: '/architecture' });
+    return { success: true, data: response.data };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      details: error.response?.data || null,
+      code: error.code,
+      statusCode: error.response?.status
+    };
+  }
+};
+
+export default apiClient;
+
+
+
+
