@@ -43,7 +43,34 @@ class RedisConnection {
       let role = infoObj.role || 'master';
       let clusterNodes = [];
 
-      // Check if cluster mode (highest priority)
+      // 1. Check for Sentinel FIRST (highest priority after cluster)
+      const isSentinel = await this.checkIfSentinel();
+      if (isSentinel) {
+        mode = 'sentinel';
+        role = 'sentinel';
+        
+        // Get sentinel masters being monitored
+        try {
+          const masters = await this.getSentinelMasters();
+          clusterNodes = masters.map(master => ({
+            name: master.name,
+            role: 'monitored-master',
+            status: master.flags.includes('down') ? 'down' : 'up',
+            address: `${master.ip}:${master.port}`,
+            sentinels: master.num_other_sentinels
+          }));
+        } catch (error) {
+          logger.error('Error getting sentinel masters:', error.message);
+        }
+        
+        this.status.mode = mode;
+        this.status.role = role;
+        this.status.clusterNodes = clusterNodes;
+        logger.info(`📊 Redis architecture: ${mode}`);
+        return;
+      }
+
+      // 2. Check if cluster mode
       if (infoObj.cluster_enabled === '1') {
         mode = 'cluster';
         try {
@@ -53,13 +80,33 @@ class RedisConnection {
           logger.error('Error getting cluster info:', error.message);
         }
       } 
-      // Check if it's actually in replication (has slaves or is a slave)
+      // 3. Check if it's replication (slave node)
       else if (role === 'slave') {
-        // This node is a slave, so it's definitely replication
         mode = 'replication';
+        
+        // Get master info
+        try {
+          const masterHost = infoObj.master_host || 'unknown';
+          const masterPort = infoObj.master_port || 'unknown';
+          
+          clusterNodes = [
+            {
+              role: 'master',
+              address: `${masterHost}:${masterPort}`,
+              status: infoObj.master_link_status === 'up' ? 'connected' : 'disconnected'
+            },
+            {
+              role: 'slave',
+              info: 'current',
+              status: 'connected'
+            }
+          ];
+        } catch (error) {
+          logger.error('Error getting master info:', error.message);
+        }
       }
+      // 4. Check if it's replication (master with slaves)
       else if (role === 'master') {
-        // Check if this master actually has connected slaves
         const connectedSlaves = parseInt(infoObj.connected_slaves) || 0;
         
         if (connectedSlaves > 0) {
@@ -70,22 +117,26 @@ class RedisConnection {
             const replicationInfo = await this.client.info('replication');
             const replObj = this.parseRedisInfo(replicationInfo);
             
+            // Add master info
+            clusterNodes.push({
+              role: 'master',
+              info: 'current',
+              status: 'connected'
+            });
+            
             // Parse slave information
             for (let i = 0; i < connectedSlaves; i++) {
               const slaveKey = `slave${i}`;
               if (replObj[slaveKey]) {
+                const slaveInfo = this.parseSlaveInfo(replObj[slaveKey]);
                 clusterNodes.push({
                   role: 'slave',
-                  info: replObj[slaveKey]
+                  address: `${slaveInfo.ip}:${slaveInfo.port}`,
+                  status: slaveInfo.state === 'online' ? 'connected' : 'disconnected',
+                  lag: slaveInfo.lag || 0
                 });
               }
             }
-            
-            // Add master info
-            clusterNodes.unshift({
-              role: 'master',
-              info: 'current'
-            });
           } catch (error) {
             logger.error('Error getting replication details:', error.message);
           }
@@ -93,12 +144,6 @@ class RedisConnection {
           // Master with no slaves = standalone
           mode = 'standalone';
         }
-      }
-      
-      // Check for Sentinel (this would require connecting to sentinel, not data node)
-      // Sentinel detection happens when connecting to sentinel port (26379)
-      if (infoObj.redis_mode === 'sentinel') {
-        mode = 'sentinel';
       }
 
       this.status.mode = mode;
@@ -116,6 +161,64 @@ class RedisConnection {
     }
   }
 
+  async checkIfSentinel() {
+    try {
+      // Try to execute a Sentinel-specific command
+      // Sentinel nodes respond to "SENTINEL masters"
+      const result = await this.client.sendCommand(['SENTINEL', 'masters']);
+      return true; // If this succeeds, it's a Sentinel
+    } catch (error) {
+      // If command fails, it's not a Sentinel
+      if (error.message.includes('unknown command') || 
+          error.message.includes('ERR unknown command')) {
+        return false;
+      }
+      // Other errors might still mean it's a sentinel with issues
+      logger.debug('Sentinel check error:', error.message);
+      return false;
+    }
+  }
+
+  async getSentinelMasters() {
+    try {
+      const mastersData = await this.client.sendCommand(['SENTINEL', 'masters']);
+      
+      // Parse the array response from Redis
+      const masters = [];
+      for (let i = 0; i < mastersData.length; i++) {
+        const masterInfo = mastersData[i];
+        const master = {};
+        
+        // Redis returns array like: [key1, value1, key2, value2, ...]
+        for (let j = 0; j < masterInfo.length; j += 2) {
+          master[masterInfo[j]] = masterInfo[j + 1];
+        }
+        
+        masters.push(master);
+      }
+      
+      return masters;
+    } catch (error) {
+      logger.error('Error getting sentinel masters:', error.message);
+      return [];
+    }
+  }
+
+  parseSlaveInfo(slaveStr) {
+    // Format: "ip=172.20.0.3,port=6379,state=online,offset=123,lag=0"
+    const parts = slaveStr.split(',');
+    const info = {};
+    
+    parts.forEach(part => {
+      const [key, value] = part.split('=');
+      if (key && value) {
+        info[key] = value;
+      }
+    });
+    
+    return info;
+  }
+
   parseRedisInfo(info) {
     const lines = info.split('\r\n');
     const result = {};
@@ -123,8 +226,8 @@ class RedisConnection {
     for (const line of lines) {
       if (line && !line.startsWith('#')) {
         const [key, value] = line.split(':');
-        if (key && value) {
-          result[key] = value;
+        if (key && value !== undefined) {
+          result[key] = value.trim();
         }
       }
     }

@@ -379,3 +379,10 @@ Current settings are perfect because:
 Verdict: No need to extend retry time. The continuous background reconnection handles everything.
 
 =======================================================================================================
+
+
+
+
+docker compose -f filename up -d 
+
+docker compose -f filename down -v
