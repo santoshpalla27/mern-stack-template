@@ -136,7 +136,7 @@ services:
       redis-master:
         condition: service_healthy
 
-  # Redis Sentinel 1 - FIXED INLINE CONFIG
+  # Redis Sentinel 1 - WORKING VERSION
   redis-sentinel1:
     image: redis:7-alpine
     container_name: redis-sentinel1
@@ -148,22 +148,19 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command: >
-      sh -c "
-      echo 'Creating Sentinel configuration...' &&
-      cat > /tmp/sentinel.conf <<'EOF'
-      port 26379
-      dir /tmp
-      sentinel monitor mymaster redis-master 6379 2
-      sentinel down-after-milliseconds mymaster 5000
-      sentinel parallel-syncs mymaster 1
-      sentinel failover-timeout mymaster 10000
-      sentinel resolve-hostnames yes
-      sentinel announce-hostnames yes
-      EOF
-      echo 'Starting Redis Sentinel...' &&
-      redis-sentinel /tmp/sentinel.conf
-      "
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/sentinel.conf << 'SENTINELEOF'
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        SENTINELEOF
+        exec redis-sentinel /tmp/sentinel.conf
 
   # Redis Sentinel 2
   redis-sentinel2:
@@ -177,20 +174,19 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command: >
-      sh -c "
-      cat > /tmp/sentinel.conf <<'EOF'
-      port 26379
-      dir /tmp
-      sentinel monitor mymaster redis-master 6379 2
-      sentinel down-after-milliseconds mymaster 5000
-      sentinel parallel-syncs mymaster 1
-      sentinel failover-timeout mymaster 10000
-      sentinel resolve-hostnames yes
-      sentinel announce-hostnames yes
-      EOF
-      redis-sentinel /tmp/sentinel.conf
-      "
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/sentinel.conf << 'SENTINELEOF'
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        SENTINELEOF
+        exec redis-sentinel /tmp/sentinel.conf
 
   # Redis Sentinel 3
   redis-sentinel3:
@@ -204,20 +200,19 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command: >
-      sh -c "
-      cat > /tmp/sentinel.conf <<'EOF'
-      port 26379
-      dir /tmp
-      sentinel monitor mymaster redis-master 6379 2
-      sentinel down-after-milliseconds mymaster 5000
-      sentinel parallel-syncs mymaster 1
-      sentinel failover-timeout mymaster 10000
-      sentinel resolve-hostnames yes
-      sentinel announce-hostnames yes
-      EOF
-      redis-sentinel /tmp/sentinel.conf
-      "
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/sentinel.conf << 'SENTINELEOF'
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        SENTINELEOF
+        exec redis-sentinel /tmp/sentinel.conf
 
   # Backend API - WITH SENTINEL CONNECTION
   backend:
