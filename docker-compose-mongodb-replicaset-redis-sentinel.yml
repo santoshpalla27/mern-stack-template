@@ -152,6 +152,12 @@ services:
       - sh
       - -c
       - |
+        echo "Waiting for redis-master DNS..."
+        until getent hosts redis-master; do
+          echo "Still waiting for redis-master..."
+          sleep 2
+        done
+        echo "DNS resolved! Starting Sentinel..."
         cat > /tmp/s.conf << 'EOF'
         port 26379
         dir /tmp
@@ -159,6 +165,8 @@ services:
         sentinel down-after-milliseconds mymaster 5000
         sentinel parallel-syncs mymaster 1
         sentinel failover-timeout mymaster 10000
+        sentinel resolve-hostnames yes
+        sentinel announce-hostnames yes
         EOF
         exec redis-sentinel /tmp/s.conf
 
@@ -178,6 +186,12 @@ services:
       - sh
       - -c
       - |
+        echo "Waiting for redis-master DNS..."
+        until getent hosts redis-master; do
+          echo "Still waiting for redis-master..."
+          sleep 2
+        done
+        echo "DNS resolved! Starting Sentinel..."
         cat > /tmp/s.conf << 'EOF'
         port 26379
         dir /tmp
@@ -185,6 +199,8 @@ services:
         sentinel down-after-milliseconds mymaster 5000
         sentinel parallel-syncs mymaster 1
         sentinel failover-timeout mymaster 10000
+        sentinel resolve-hostnames yes
+        sentinel announce-hostnames yes
         EOF
         exec redis-sentinel /tmp/s.conf
 
@@ -204,6 +220,12 @@ services:
       - sh
       - -c
       - |
+        echo "Waiting for redis-master DNS..."
+        until getent hosts redis-master; do
+          echo "Still waiting for redis-master..."
+          sleep 2
+        done
+        echo "DNS resolved! Starting Sentinel..."
         cat > /tmp/s.conf << 'EOF'
         port 26379
         dir /tmp
@@ -211,6 +233,8 @@ services:
         sentinel down-after-milliseconds mymaster 5000
         sentinel parallel-syncs mymaster 1
         sentinel failover-timeout mymaster 10000
+        sentinel resolve-hostnames yes
+        sentinel announce-hostnames yes
         EOF
         exec redis-sentinel /tmp/s.conf
 
