@@ -62,7 +62,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # MongoDB Replica Set Initializer
+  # MongoDB Replica Set Initializer - FIXED
   mongodb-init:
     image: mongo:7.0
     container_name: mongodb-rs-init
@@ -70,20 +70,27 @@ services:
     networks:
       - devops-network
     depends_on:
-      - mongodb-primary
-      - mongodb-secondary1
-      - mongodb-secondary2
+      mongodb-primary:
+        condition: service_healthy
+      mongodb-secondary1:
+        condition: service_healthy
+      mongodb-secondary2:
+        condition: service_healthy
     command: >
+      sh -c "
+      echo 'Waiting for all MongoDB nodes to be ready...' &&
+      sleep 10 &&
       mongosh --host mongodb-primary:27017 --eval '
       rs.initiate({
-        _id: "rs0",
+        _id: \"rs0\",
         members: [
-          { _id: 0, host: "mongodb-primary:27017", priority: 2 },
-          { _id: 1, host: "mongodb-secondary1:27017", priority: 1 },
-          { _id: 2, host: "mongodb-secondary2:27017", priority: 1 }
+          { _id: 0, host: \"mongodb-primary:27017\", priority: 2 },
+          { _id: 1, host: \"mongodb-secondary1:27017\", priority: 1 },
+          { _id: 2, host: \"mongodb-secondary2:27017\", priority: 1 }
         ]
       });
       '
+      "
   # Redis Master
   redis-master:
     image: redis:7-alpine
