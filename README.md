@@ -380,9 +380,18 @@ Verdict: No need to extend retry time. The continuous background reconnection ha
 
 =======================================================================================================
 
+## Docker Compose Architecture Overview
 
+The following table summarizes the different Docker Compose configurations available with their corresponding database architectures:
 
+| File Name | MongoDB Architecture | Redis Architecture |
+|-----------|---------------------|-------------------|
+| docker-compose-standalone.yml | Standalone | Standalone |
+| docker-compose-mongodb-replicaset-redis-standalone.yml | Replica Set (3 nodes) | Standalone |
+| docker-compose-mongodb-standalone-redis-replication.yml | Standalone | Master-Replica (1+2) |
+| docker-compose-mongodb-replicaset-redis-sentinel.yml | Replica Set (3 nodes) | Sentinel (3 sentinels) |
+| docker-compose-mongodb-standalone-redis-cluster.yml | Standalone | Cluster (6 nodes) |
+| docker-compose-mongodb-sharded-redis-cluster.yml | Sharded (2 shards + config servers) | Cluster (6 nodes) |
 
 docker compose -f filename up -d 
-
 docker compose -f filename down -v
