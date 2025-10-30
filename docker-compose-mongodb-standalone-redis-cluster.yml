@@ -33,6 +33,12 @@ services:
       - redis_node1_data:/data
     networks:
       - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7001", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   # Redis Cluster Node 2
   redis-node2:
@@ -47,6 +53,12 @@ services:
       - redis_node2_data:/data
     networks:
       - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7002", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   # Redis Cluster Node 3
   redis-node3:
@@ -61,6 +73,12 @@ services:
       - redis_node3_data:/data
     networks:
       - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7003", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   # Redis Cluster Node 4
   redis-node4:
@@ -75,6 +93,12 @@ services:
       - redis_node4_data:/data
     networks:
       - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7004", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   # Redis Cluster Node 5
   redis-node5:
@@ -89,6 +113,12 @@ services:
       - redis_node5_data:/data
     networks:
       - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7005", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   # Redis Cluster Node 6
   redis-node6:
@@ -103,6 +133,12 @@ services:
       - redis_node6_data:/data
     networks:
       - devops-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7006", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   # Redis Cluster Creator
   redis-cluster-creator:
@@ -112,25 +148,41 @@ services:
     networks:
       - devops-network
     depends_on:
-      - redis-node1
-      - redis-node2
-      - redis-node3
-      - redis-node4
-      - redis-node5
-      - redis-node6
-    command: >
-      sh -c "
-      sleep 10 &&
-      redis-cli --cluster create 
-      redis-node1:7001 
-      redis-node2:7002 
-      redis-node3:7003 
-      redis-node4:7004 
-      redis-node5:7005 
-      redis-node6:7006 
-      --cluster-replicas 1 
-      --cluster-yes
-      "
+      redis-node1:
+        condition: service_healthy
+      redis-node2:
+        condition: service_healthy
+      redis-node3:
+        condition: service_healthy
+      redis-node4:
+        condition: service_healthy
+      redis-node5:
+        condition: service_healthy
+      redis-node6:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        echo "All Redis nodes are healthy! Creating cluster in 5 seconds..."
+        sleep 5
+        redis-cli --cluster create \
+          redis-node1:7001 \
+          redis-node2:7002 \
+          redis-node3:7003 \
+          redis-node4:7004 \
+          redis-node5:7005 \
+          redis-node6:7006 \
+          --cluster-replicas 1 \
+          --cluster-yes
+        
+        if [ \$\$? -eq 0 ]; then
+          echo "✅ Redis cluster created successfully!"
+          redis-cli -c -h redis-node1 -p 7001 CLUSTER INFO
+        else
+          echo "❌ Redis cluster creation failed!"
+          exit 1
+        fi
 
   # Backend API
   backend:
@@ -145,7 +197,7 @@ services:
       NODE_ENV: production
       PORT: 5000
       MONGO_URI: mongodb://mongodb:27017/devops-demo
-      REDIS_URI: redis://redis-node1:7001
+      REDIS_CLUSTER_NODES: redis-node1:7001,redis-node2:7002,redis-node3:7003,redis-node4:7004,redis-node5:7005,redis-node6:7006
       CORS_ORIGIN: http://98.82.189.42:3000
       LOG_LEVEL: info
       DEPLOYMENT_PLATFORM: Docker Compose - MongoDB Standalone + Redis Cluster
