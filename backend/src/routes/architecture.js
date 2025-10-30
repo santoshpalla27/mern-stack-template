@@ -1,7 +1,25 @@
 const express = require('express');
+const mongoConnection = require('../config/mongodb');
+const redisConnection = require('../config/redis');
 const logger = require('../utils/logger');
 
 const router = express.Router();
+
+// Function to get MongoDB status
+function getMongoStatus() {
+  const mongoStatus = mongoConnection.getStatus();
+  return mongoStatus.connected ? 'running' : 'configured';
+}
+
+// Function to get Redis status
+function getRedisStatus() {
+  if (!process.env.REDIS_URI) {
+    return 'optional';
+  }
+  
+  const redisStatus = redisConnection.getStatus();
+  return redisStatus.connected ? 'running' : 'configured';
+}
 
 // Get architecture information
 router.get('/', (req, res) => {
@@ -44,7 +62,7 @@ router.get('/', (req, res) => {
           technology: 'MongoDB 7.0',
           port: 27017,
           description: 'NoSQL document database',
-          status: 'running',
+          status: getMongoStatus(),
           connections: []
         },
         {
@@ -54,7 +72,7 @@ router.get('/', (req, res) => {
           technology: 'Redis 7',
           port: 6379,
           description: 'In-memory cache and message broker',
-          status: process.env.REDIS_URI ? 'configured' : 'optional',
+          status: getRedisStatus(),
           connections: []
         }
       ],
