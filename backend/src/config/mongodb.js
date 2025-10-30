@@ -113,43 +113,70 @@ class MongoDBConnection {
       let replicaSet = null;
       let nodes = [];
 
-      if (serverStatus.repl) {
+      // Check if it's actually a replica set (must have setName)
+      if (serverStatus.repl && serverStatus.repl.setName) {
         topology = 'replicaSet';
         replicaSet = serverStatus.repl.setName;
         
-        // Get replica set members
-        if (serverStatus.repl.hosts) {
-          nodes = serverStatus.repl.hosts.map(host => ({
-            host,
-            role: 'secondary'
-          }));
-        }
-        
-        // Mark primary
-        if (serverStatus.repl.primary) {
-          const primaryIndex = nodes.findIndex(n => n.host === serverStatus.repl.primary);
-          if (primaryIndex !== -1) {
-            nodes[primaryIndex].role = 'primary';
+        // Get replica set status for detailed member information
+        try {
+          const replStatus = await admin.command({ replSetGetStatus: 1 });
+          
+          if (replStatus && replStatus.members) {
+            nodes = replStatus.members.map(member => ({
+              host: member.name,
+              role: member.stateStr === 'PRIMARY' ? 'primary' : 
+                    member.stateStr === 'SECONDARY' ? 'secondary' : 
+                    member.stateStr.toLowerCase(),
+              health: member.health === 1 ? 'healthy' : 'unhealthy',
+              state: member.stateStr,
+              uptime: member.uptime
+            }));
+          }
+        } catch (replError) {
+          // If replSetGetStatus command fails, it's not actually a replica set
+          if (replError.codeName === 'NoReplicationEnabled') {
+            logger.debug('MongoDB is standalone (no replication enabled)');
+            topology = 'standalone';
+            replicaSet = null;
+          } else {
+            logger.error('Error getting replica set status:', replError.message);
           }
         }
-      } else if (serverStatus.process === 'mongos') {
+      } 
+      // Check for sharded cluster
+      else if (serverStatus.process === 'mongos') {
         topology = 'sharded';
         
         // Get shard information
-        const shardsInfo = await mongoose.connection.db.admin().command({ listShards: 1 });
-        nodes = shardsInfo.shards.map(shard => ({
-          host: shard.host,
-          role: 'shard',
-          name: shard._id
-        }));
+        try {
+          const shardsInfo = await mongoose.connection.db.admin().command({ listShards: 1 });
+          
+          if (shardsInfo && shardsInfo.shards) {
+            nodes = shardsInfo.shards.map(shard => ({
+              host: shard.host,
+              role: 'shard',
+              name: shard._id,
+              state: shard.state === 1 ? 'active' : 'inactive'
+            }));
+          }
+        } catch (shardError) {
+          logger.error('Error getting shard info:', shardError.message);
+        }
       }
 
       this.status.topology = topology;
       this.status.replicaSet = replicaSet;
       this.status.nodes = nodes;
 
+      logger.info(`📊 MongoDB topology: ${topology}${replicaSet ? ` (ReplicaSet: ${replicaSet})` : ''}`);
+
     } catch (error) {
-      logger.error('Error getting MongoDB topology:', error.message);
+      logger.error('Error detecting MongoDB topology:', error.message);
+      // Default to standalone on error
+      this.status.topology = 'standalone';
+      this.status.replicaSet = null;
+      this.status.nodes = [];
     }
   }
 

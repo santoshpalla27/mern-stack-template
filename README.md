@@ -322,8 +322,60 @@ For DevOps-related questions or issues:
 
 
 
+==================================================================
 
 
+To Extend Retry Time:
+# Backend .env
 
+MONGO_MAX_RETRIES=20
+MONGO_RETRY_DELAY=10000
+REDIS_MAX_RETRIES=20
+REDIS_RETRY_DELAY=10000
 
+The App Already Has Infinite Retry Capability:
+1. Continuous Reconnection (Infinite Retry)
+mongoose.connection.on('disconnected', () => {
+  // This triggers automatic reconnection
+  // Will keep trying forever until connected
+});
+MongoDB's driver has built-in automatic reconnection
+Redis client also has built-in reconnection strategy
+They keep trying indefinitely in the background
+2. Initial Connection vs Ongoing Connection
+The maxRetries (10 attempts, ~4.5 min) only applies to:
 
+Initial connection attempt when app starts
+After max retries, the app doesn't crash - it continues running
+Background reconnection continues forever
+3. What Actually Happens:
+App starts → Try connecting (10 attempts, ~4.5 min)
+  ↓
+If fails after 10 attempts:
+  ✅ App still runs (doesn't crash)
+  ✅ MongoDB/Redis keep trying to reconnect forever
+  ✅ Frontend shows "Disconnected" status
+  ✅ When DB comes back online → Auto reconnects
+  ↓
+Connection restored automatically ✓
+Real-World Scenario:
+Time 0:00 - App starts, MongoDB is down
+Time 0:00-4:30 - Tries 10 times (initial retry)
+Time 4:30 - Gives up initial connection
+Time 4:30+ - App runs, keeps trying in background (forever)
+Time 10:00 - MongoDB comes online
+Time 10:00 - Auto-reconnects immediately ✓
+So Extending Retry Time Only Helps If:
+You want the app to wait longer during startup before accepting traffic
+You're using health checks that fail if DB isn't connected initially
+You want cleaner startup logs (fewer "still trying..." messages)
+For Your Template Use Case:
+Current settings are perfect because:
+
+✅ App doesn't crash if DB is down
+✅ Auto-reconnects when DB comes back
+✅ Developers see real-world resilient behavior
+✅ Shows production-ready patterns
+Verdict: No need to extend retry time. The continuous background reconnection handles everything.
+
+=======================================================================================================
