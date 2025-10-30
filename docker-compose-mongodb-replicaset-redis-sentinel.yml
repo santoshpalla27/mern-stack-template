@@ -136,7 +136,7 @@ services:
       redis-master:
         condition: service_healthy
 
-  # Redis Sentinel 1 - WORKING VERSION
+  # Redis Sentinel 1
   redis-sentinel1:
     image: redis:7-alpine
     container_name: redis-sentinel1
@@ -148,19 +148,7 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command:
-      - sh
-      - -c
-      - |
-        cat > /tmp/sentinel.conf << 'SENTINELEOF'
-        port 26379
-        dir /tmp
-        sentinel monitor mymaster redis-master 6379 2
-        sentinel down-after-milliseconds mymaster 5000
-        sentinel parallel-syncs mymaster 1
-        sentinel failover-timeout mymaster 10000
-        SENTINELEOF
-        exec redis-sentinel /tmp/sentinel.conf
+    command: ["redis-sentinel", "--port", "26379", "--sentinel", "monitor", "mymaster", "redis-master", "6379", "2", "--sentinel", "down-after-milliseconds", "mymaster", "5000", "--sentinel", "parallel-syncs", "mymaster", "1", "--sentinel", "failover-timeout", "mymaster", "10000"]
 
   # Redis Sentinel 2
   redis-sentinel2:
@@ -174,19 +162,7 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command:
-      - sh
-      - -c
-      - |
-        cat > /tmp/sentinel.conf << 'SENTINELEOF'
-        port 26379
-        dir /tmp
-        sentinel monitor mymaster redis-master 6379 2
-        sentinel down-after-milliseconds mymaster 5000
-        sentinel parallel-syncs mymaster 1
-        sentinel failover-timeout mymaster 10000
-        SENTINELEOF
-        exec redis-sentinel /tmp/sentinel.conf
+    command: ["redis-sentinel", "--port", "26379", "--sentinel", "monitor", "mymaster", "redis-master", "6379", "2", "--sentinel", "down-after-milliseconds", "mymaster", "5000", "--sentinel", "parallel-syncs", "mymaster", "1", "--sentinel", "failover-timeout", "mymaster", "10000"]
 
   # Redis Sentinel 3
   redis-sentinel3:
@@ -200,19 +176,7 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command:
-      - sh
-      - -c
-      - |
-        cat > /tmp/sentinel.conf << 'SENTINELEOF'
-        port 26379
-        dir /tmp
-        sentinel monitor mymaster redis-master 6379 2
-        sentinel down-after-milliseconds mymaster 5000
-        sentinel parallel-syncs mymaster 1
-        sentinel failover-timeout mymaster 10000
-        SENTINELEOF
-        exec redis-sentinel /tmp/sentinel.conf
+    command: ["redis-sentinel", "--port", "26379", "--sentinel", "monitor", "mymaster", "redis-master", "6379", "2", "--sentinel", "down-after-milliseconds", "mymaster", "5000", "--sentinel", "parallel-syncs", "mymaster", "1", "--sentinel", "failover-timeout", "mymaster", "10000"]
 
   # Backend API - WITH SENTINEL CONNECTION
   backend:
