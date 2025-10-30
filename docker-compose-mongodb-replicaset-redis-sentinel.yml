@@ -148,7 +148,19 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command: ["redis-sentinel", "--port", "26379", "--sentinel", "monitor", "mymaster", "redis-master", "6379", "2", "--sentinel", "down-after-milliseconds", "mymaster", "5000", "--sentinel", "parallel-syncs", "mymaster", "1", "--sentinel", "failover-timeout", "mymaster", "10000"]
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/s.conf << 'EOF'
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        exec redis-sentinel /tmp/s.conf
 
   # Redis Sentinel 2
   redis-sentinel2:
@@ -162,7 +174,19 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command: ["redis-sentinel", "--port", "26379", "--sentinel", "monitor", "mymaster", "redis-master", "6379", "2", "--sentinel", "down-after-milliseconds", "mymaster", "5000", "--sentinel", "parallel-syncs", "mymaster", "1", "--sentinel", "failover-timeout", "mymaster", "10000"]
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/s.conf << 'EOF'
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        exec redis-sentinel /tmp/s.conf
 
   # Redis Sentinel 3
   redis-sentinel3:
@@ -176,7 +200,19 @@ services:
     depends_on:
       redis-master:
         condition: service_healthy
-    command: ["redis-sentinel", "--port", "26379", "--sentinel", "monitor", "mymaster", "redis-master", "6379", "2", "--sentinel", "down-after-milliseconds", "mymaster", "5000", "--sentinel", "parallel-syncs", "mymaster", "1", "--sentinel", "failover-timeout", "mymaster", "10000"]
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/s.conf << 'EOF'
+        port 26379
+        dir /tmp
+        sentinel monitor mymaster redis-master 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        EOF
+        exec redis-sentinel /tmp/s.conf
 
   # Backend API - WITH SENTINEL CONNECTION
   backend:
