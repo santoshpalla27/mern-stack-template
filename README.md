@@ -395,3 +395,50 @@ The following table summarizes the different Docker Compose configurations avail
 
 docker compose -f filename up -d 
 docker compose -f filename down -v
+
+
+
+
+🎯 Update Your Configs for Consistency
+Option A: Single Node (Simple)
+All configs use single node for simplicity:
+
+# ReplicaSet + Sentinel
+MONGO_URI: mongodb://mongodb-primary:27017/devops-demo?replicaSet=rs0
+REDIS_SENTINEL_HOSTS: redis-sentinel1:26379
+
+# Standalone + Cluster
+MONGO_URI: mongodb://mongodb:27017/devops-demo
+REDIS_CLUSTER_NODES: redis-node1:7001
+
+# Sharded + Cluster
+MONGO_URI: mongodb://mongos:27017/devops-demo
+REDIS_CLUSTER_NODES: redis-node1:7001
+Option B: All Nodes (Production-Ready)
+Maximum availability with all nodes listed:
+
+# ReplicaSet + Sentinel
+MONGO_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/devops-demo?replicaSet=rs0
+REDIS_SENTINEL_HOSTS: redis-sentinel1:26379,redis-sentinel2:26379,redis-sentinel3:26379
+
+# Standalone + Cluster
+MONGO_URI: mongodb://mongodb:27017/devops-demo
+REDIS_CLUSTER_NODES: redis-node1:7001,redis-node2:7002,redis-node3:7003,redis-node4:7004,redis-node5:7005,redis-node6:7006
+
+# Sharded + Cluster
+MONGO_URI: mongodb://mongos:27017/devops-demo
+REDIS_CLUSTER_NODES: redis-node1:7001,redis-node2:7002,redis-node3:7003,redis-node4:7004,redis-node5:7005,redis-node6:7006
+✅ Answer to Your Question
+Yes! MongoDB works exactly like Redis Cluster with auto-discovery:
+
+Feature	Redis	MongoDB
+Auto-discovery	✅ Yes	✅ Yes
+Single node works	✅ Yes	✅ Yes
+Learns topology	✅ CLUSTER NODES	✅ rs.status()
+Handles failover	✅ Yes	✅ Yes
+Recommended for prod	All nodes	All nodes
+Works with one node	✅ Yes	✅ Yes
+Both use the same pattern - provide one seed node, discover the rest! 🎉
+
+For Docker Compose (where all services start together), single node is fine.
+For production/Kubernetes, listing all nodes provides better availability.
