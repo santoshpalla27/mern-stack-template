@@ -136,41 +136,34 @@ services:
       redis-master:
         condition: service_healthy
 
-  # Redis Sentinel 1
+  # Redis Sentinel 1 - FIXED INLINE CONFIG
   redis-sentinel1:
     image: redis:7-alpine
     container_name: redis-sentinel1
     restart: unless-stopped
     ports:
       - "26379:26379"
-    entrypoint: []
-    command:
-      - sh
-      - -c
-      - |
-        echo "Waiting for redis-master to be resolvable..."
-        until getent hosts redis-master > /dev/null 2>&1; do
-          echo "Waiting for redis-master DNS..."
-          sleep 2
-        done
-        echo "redis-master resolved!"
-        
-        echo "Waiting for redis-master:6379..."
-        until nc -z redis-master 6379; do
-          sleep 2
-        done
-        echo "redis-master is reachable!"
-        
-        cat > /tmp/sentinel.conf <<EOF
-        port 26379
-        dir /tmp
-        sentinel monitor mymaster redis-master 6379 2
-        sentinel down-after-milliseconds mymaster 5000
-        sentinel parallel-syncs mymaster 1
-        sentinel failover-timeout mymaster 10000
-        EOF
-        
-        redis-sentinel /tmp/sentinel.conf
+    networks:
+      - devops-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    command: >
+      sh -c "
+      echo 'Creating Sentinel configuration...' &&
+      cat > /tmp/sentinel.conf <<'EOF'
+      port 26379
+      dir /tmp
+      sentinel monitor mymaster redis-master 6379 2
+      sentinel down-after-milliseconds mymaster 5000
+      sentinel parallel-syncs mymaster 1
+      sentinel failover-timeout mymaster 10000
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+      EOF
+      echo 'Starting Redis Sentinel...' &&
+      redis-sentinel /tmp/sentinel.conf
+      "
 
   # Redis Sentinel 2
   redis-sentinel2:
@@ -179,34 +172,25 @@ services:
     restart: unless-stopped
     ports:
       - "26380:26379"
-    entrypoint: []
-    command:
-      - sh
-      - -c
-      - |
-        echo "Waiting for redis-master to be resolvable..."
-        until getent hosts redis-master > /dev/null 2>&1; do
-          echo "Waiting for redis-master DNS..."
-          sleep 2
-        done
-        echo "redis-master resolved!"
-        
-        echo "Waiting for redis-master:6379..."
-        until nc -z redis-master 6379; do
-          sleep 2
-        done
-        echo "redis-master is reachable!"
-        
-        cat > /tmp/sentinel.conf <<EOF
-        port 26379
-        dir /tmp
-        sentinel monitor mymaster redis-master 6379 2
-        sentinel down-after-milliseconds mymaster 5000
-        sentinel parallel-syncs mymaster 1
-        sentinel failover-timeout mymaster 10000
-        EOF
-        
-        redis-sentinel /tmp/sentinel.conf
+    networks:
+      - devops-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    command: >
+      sh -c "
+      cat > /tmp/sentinel.conf <<'EOF'
+      port 26379
+      dir /tmp
+      sentinel monitor mymaster redis-master 6379 2
+      sentinel down-after-milliseconds mymaster 5000
+      sentinel parallel-syncs mymaster 1
+      sentinel failover-timeout mymaster 10000
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+      EOF
+      redis-sentinel /tmp/sentinel.conf
+      "
 
   # Redis Sentinel 3
   redis-sentinel3:
@@ -215,36 +199,27 @@ services:
     restart: unless-stopped
     ports:
       - "26381:26379"
-    entrypoint: []
-    command:
-      - sh
-      - -c
-      - |
-        echo "Waiting for redis-master to be resolvable..."
-        until getent hosts redis-master > /dev/null 2>&1; do
-          echo "Waiting for redis-master DNS..."
-          sleep 2
-        done
-        echo "redis-master resolved!"
-        
-        echo "Waiting for redis-master:6379..."
-        until nc -z redis-master 6379; do
-          sleep 2
-        done
-        echo "redis-master is reachable!"
-        
-        cat > /tmp/sentinel.conf <<EOF
-        port 26379
-        dir /tmp
-        sentinel monitor mymaster redis-master 6379 2
-        sentinel down-after-milliseconds mymaster 5000
-        sentinel parallel-syncs mymaster 1
-        sentinel failover-timeout mymaster 10000
-        EOF
-        
-        redis-sentinel /tmp/sentinel.conf
+    networks:
+      - devops-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    command: >
+      sh -c "
+      cat > /tmp/sentinel.conf <<'EOF'
+      port 26379
+      dir /tmp
+      sentinel monitor mymaster redis-master 6379 2
+      sentinel down-after-milliseconds mymaster 5000
+      sentinel parallel-syncs mymaster 1
+      sentinel failover-timeout mymaster 10000
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+      EOF
+      redis-sentinel /tmp/sentinel.conf
+      "
 
-  # Backend API
+  # Backend API - WITH SENTINEL CONNECTION
   backend:
     build:
       context: ./backend
@@ -257,25 +232,23 @@ services:
       NODE_ENV: production
       PORT: 5000
       MONGO_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/devops-demo?replicaSet=rs0
-      REDIS_URI: sentinel://redis-sentinel1:26379  # ✅ Changed to sentinel://
-      REDIS_SENTINEL_MASTER: mymaster              # ✅ Added
-      CORS_ORIGIN: http://98.82.189.42:3000
+      REDIS_SENTINEL_HOSTS: redis-sentinel1:26379,redis-sentinel2:26379,redis-sentinel3:26379  # ✅ NEW
+      REDIS_SENTINEL_MASTER: mymaster  # ✅ NEW
+      CORS_ORIGIN: http://98.82.189.4:3000
       LOG_LEVEL: info
       DEPLOYMENT_PLATFORM: Docker Compose - MongoDB ReplicaSet + Redis Sentinel
       ORCHESTRATION: Docker Compose
-      REDIS_MAX_RETRIES: 30      # ✅ Increased
-      REDIS_RETRY_DELAY: 5000    # ✅ Added
     depends_on:
       mongodb-init:
         condition: service_completed_successfully
+      redis-master:
+        condition: service_healthy
       redis-sentinel1:
         condition: service_started
       redis-sentinel2:
         condition: service_started
       redis-sentinel3:
         condition: service_started
-      redis-master:
-        condition: service_healthy  # ✅ Added dependency on master
     networks:
       - devops-network
     healthcheck:
@@ -283,7 +256,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 90s  # ✅ Increased from 60s
+      start_period: 90s
 
   # Frontend Application
   frontend:
@@ -291,7 +264,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://98.82.189.42:5000/api
+        VITE_API_URL: http://98.82.189.4:5000/api
     container_name: devops-frontend
     restart: unless-stopped
     ports:

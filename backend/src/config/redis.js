@@ -275,27 +275,36 @@ class RedisConnection {
   }
 
   async connect() {
+    // Check if Sentinel configuration is provided
+    const sentinelHosts = process.env.REDIS_SENTINEL_HOSTS;
+    const sentinelMaster = process.env.REDIS_SENTINEL_MASTER || 'mymaster';
     const redisURI = process.env.REDIS_URI;
     
-    if (!redisURI) {
+    if (!sentinelHosts && !redisURI) {
       this.updateStatus({
         connected: false,
         message: 'Redis not configured (optional)',
         lastError: null
       });
-      logger.info('ℹ️  Redis URI not provided, skipping connection');
+      logger.info('ℹ️  Redis not configured, skipping connection');
       return;
     }
 
-    // ✅ FIX: Detect if URI points to Sentinel
-    const isSentinelURI = redisURI.includes('26379') || redisURI.toLowerCase().includes('sentinel');
-
     let options;
 
-    if (isSentinelURI) {
-      // ✅ SENTINEL CONFIGURATION
-      logger.info('🔍 Detected Sentinel configuration');
+    // ✅ SENTINEL CONFIGURATION
+    if (sentinelHosts) {
+      logger.info('🔍 Using Redis Sentinel configuration');
       
+      // Parse sentinel hosts
+      const sentinels = sentinelHosts.split(',').map(host => {
+        const [hostname, port] = host.trim().split(':');
+        return { host: hostname, port: parseInt(port) || 26379 };
+      });
+
+      logger.info(`🔍 Sentinel hosts: ${JSON.stringify(sentinels)}`);
+      logger.info(`🔍 Sentinel master name: ${sentinelMaster}`);
+
       options = {
         socket: {
           connectTimeout: 10000,
@@ -309,18 +318,16 @@ class RedisConnection {
             return delay;
           }
         },
-        // ✅ Sentinel-specific options
-        sentinels: [
-          { host: 'redis-sentinel1', port: 26379 },
-          { host: 'redis-sentinel2', port: 26379 },
-          { host: 'redis-sentinel3', port: 26379 }
-        ],
-        name: process.env.REDIS_SENTINEL_MASTER || 'mymaster', // Must match sentinel.conf
+        sentinels: sentinels,
+        name: sentinelMaster,
         sentinelRetryStrategy: (retries) => {
           if (retries > 10) {
+            logger.error('❌ Max Sentinel retries reached');
             return new Error('Max sentinel retries');
           }
-          return Math.min(retries * 1000, 5000);
+          const delay = Math.min(retries * 1000, 5000);
+          logger.info(`🔄 Sentinel retry attempt ${retries} in ${delay}ms`);
+          return delay;
         },
         enableReadyCheck: true,
         maxRetriesPerRequest: 3
@@ -341,8 +348,9 @@ class RedisConnection {
         logger.error('❌ Redis Sentinel connection failed:', error.message);
         throw error;
       }
-    } else {
-      // ✅ STANDARD/CLUSTER CONFIGURATION
+    } 
+    // ✅ STANDARD/CLUSTER CONFIGURATION
+    else if (redisURI) {
       options = {
         url: redisURI,
         socket: {
